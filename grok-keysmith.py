@@ -459,11 +459,11 @@ def atomic_write_text(path: Path, content: str, mode: int = 0o644) -> None:
     """Write text atomically: write to temp, fsync, rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp-keysmith")
-    tmp.write_text(content, encoding="utf-8")
-    os.chmod(tmp, mode)
-    # fsync
-    with open(tmp, "rb") as f:
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(content)
+        f.flush()
         os.fsync(f.fileno())
+    os.chmod(tmp, mode)
     os.replace(tmp, path)
 
 
@@ -862,7 +862,7 @@ def build_plan(args: argparse.Namespace) -> DeployPlan:
     # config.toml
     config_exists = CONFIG_TOML.exists() and CONFIG_TOML.is_file()
     config_content = CONFIG_TOML.read_text(encoding="utf-8") if config_exists else ""
-    new_config = config_add_compat_block(config_content) if config_exists else COMPAT_BLOCK.strip() + "\n"
+    new_config = config_add_compat_block(config_content)
     config_will_change = (new_config != config_content)
 
     # hooks
@@ -951,7 +951,7 @@ def execute_deploy(plan: DeployPlan, args: argparse.Namespace) -> int:
         config_content = CONFIG_TOML.read_text(encoding="utf-8")
         new_config = config_add_compat_block(config_content)
     else:
-        new_config = COMPAT_BLOCK.strip() + "\n"
+        new_config = config_add_compat_block("")
     atomic_write_text(CONFIG_TOML, new_config, mode=0o644)
     write_journal(deploy_id, "config_toml_patched", {"config_sha256": sha256_bytes(new_config.encode())})
 
