@@ -95,6 +95,17 @@ python3 grok-keysmith.py --uninstall --yes    # 确认卸载
 - `~/.grok/AGENTS.md` 是全局的，没有项目级隔离；hooks 是整目录改名隔离，不能选择性保留个别 hook。
 - 完整限制清单、compat 隔离细节、维护者验证步骤见 [`docs/reference.md`](docs/reference.md)。
 
+### 友链 / Community
+
+本项目接受 LINUX DO 社区佬友监督与反馈: [LINUX DO](https://linux.do)
+
+同系列项目 / Same series:
+
+- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) - Codex CLI 本地配置的版本化指令部署工具，支持预览、hook 隔离、中断恢复与分层卸载。
+- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) - Claude Code `CLAUDE.md` 的受管理 import-block 安装器，用于本地 Markdown 指令文件。
+- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) - ZCode App 的受管理 true system-role 入口。
+- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) - Grok Build 的全局 `AGENTS.md` 指令部署工具，支持 compat/hook 隔离、中断恢复与分层卸载。
+
 ---
 
-English version: [`README.en.md`](README.en.md). 智能体安装提示词和同系列项目见 [`docs/agent-install.md`](docs/agent-install.md)。
+English version: [`README.en.md`](README.en.md)。智能体安装提示词见 [`docs/agent-install.md`](docs/agent-install.md)。
