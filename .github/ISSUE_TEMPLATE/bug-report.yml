@@ -1,0 +1,76 @@
+name: Bug report / Bug 报告
+description: Report a reproducible problem / 报告可复现的问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先删除 token、cookie、用户名、私人路径和完整配置。安全漏洞请使用 [Private vulnerability reporting](https://github.com/Jia-Ethan/grok-keysmith/security/advisories/new)，不要在这里公开。
+
+        Remove tokens, cookies, usernames, private paths, and complete configuration. Report vulnerabilities through [Private vulnerability reporting](https://github.com/Jia-Ethan/grok-keysmith/security/advisories/new), not here.
+
+  - type: input
+    id: keysmith-version
+    attributes:
+      label: grok-keysmith 版本 / Version
+      description: Paste the output of `python3 grok-keysmith.py --version`.
+      placeholder: grok-keysmith.py 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: 操作系统 / Operating system
+      placeholder: macOS 15.5 or Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation
+    attributes:
+      label: 操作模式 / Operation
+      options:
+        - status
+        - dry-run
+        - deploy (--yes)
+        - recover (--yes)
+        - restore-hooks
+        - uninstall preview
+        - uninstall (--yes)
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 实际发生的问题（含复现步骤和预期结果）/ What happened (include steps and what you expected)
+      description: Provide the smallest sequence that reproduces the problem, what you expected, and what actually happened.
+      placeholder: |
+        1. Run ...
+        2. Expected ...
+        3. Actually saw ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic-output
+    attributes:
+      label: 脱敏后的 status / dry-run / error 输出（可选，但强烈建议附上）/ Redacted diagnostic output (optional, strongly recommended)
+      description: Include `--status` and `--dry-run` output where applicable.
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 其他信息 / Additional context
+      description: Add only directly relevant information, such as whether a manifest or `.grok-keysmith-transaction-<id>` exists. Do not paste complete journal, config, or prompt content.
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: 脱敏确认 / Redaction confirmation
+      options:
+        - label: I removed tokens, cookies, usernames, private paths, and complete configuration. / 我已删除这些敏感信息。
+          required: true
