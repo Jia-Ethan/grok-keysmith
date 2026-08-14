@@ -19,6 +19,7 @@ pub fn run() {
             cli_runner::cli_cancel,
             cli_runner::read_manifest,
             cli_runner::detect_cli,
+            cli_runner::default_breaktest_run_dir,
             cli_runner::cli_version,
             cli_runner::cli_runtime,
             cli_runner::detect_grok,

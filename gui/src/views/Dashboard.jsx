@@ -2,15 +2,27 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, Terminal, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { fetchStatus, grokInspect, isTauriMissing, readManifest } from "@/lib/api";
+import {
+  fetchStatus,
+  grokInspect,
+  isTauriMissing,
+  readManifest,
+  resolveCli,
+} from "@/lib/api";
 import { useAppState } from "@/hooks/useAppState";
-import { setLastStatus, setView } from "@/lib/store";
+import {
+  beginCliCheck,
+  completeCliCheck,
+  setLastStatus,
+  setView,
+} from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/FadeIn";
 import { buildInfo } from "@/lib/buildInfo";
 import { fingerprintShort } from "@/lib/contract";
 import { cn } from "@/lib/utils";
+import { getSettings } from "@/lib/settings";
 
 const STATE_VARIANT = {
   "active-aligned": "green",
@@ -60,6 +72,25 @@ export function Dashboard() {
     }
   }, [t]);
 
+  const retryCli = React.useCallback(async () => {
+    const generation = beginCliCheck();
+    try {
+      completeCliCheck(generation, {
+        ...(await resolveCli(getSettings().cliPath)),
+        error: null,
+        checked: true,
+      });
+    } catch (err) {
+      completeCliCheck(generation, {
+        path: null,
+        version: "",
+        runtime: "",
+        error: err?.message || String(err),
+        checked: true,
+      });
+    }
+  }, []);
+
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("fixture") === "1") {
@@ -94,7 +125,7 @@ export function Dashboard() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <FadeIn>
           <h1 className="text-2xl font-semibold tracking-tight">{t("dash.title")}</h1>
         </FadeIn>
@@ -110,9 +141,17 @@ export function Dashboard() {
 
       {cliInfo.checked && !cliInfo.path && (
         <div className="card-glass p-8 text-center">
-          <Terminal className="mx-auto size-10 text-muted-foreground" />
-          <p className="mt-4 text-sm">{t("dash.noCli")}</p>
-          <Button className="mt-5" onClick={() => setView("settings")}>{t("dash.noCliAction")}</Button>
+          {cliInfo.error ? (
+            <AlertTriangle className="mx-auto size-10 text-danger" aria-hidden="true" />
+          ) : (
+            <Terminal className="mx-auto size-10 text-muted-foreground" aria-hidden="true" />
+          )}
+          <p className="mt-4 text-sm">{t(cliInfo.error ? "dash.cliCheckFailed" : "dash.noCli")}</p>
+          {cliInfo.error ? <pre className="log-block mt-4 text-left" role="alert">{cliInfo.error}</pre> : null}
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Button onClick={retryCli}>{t("dash.retryCli")}</Button>
+            <Button variant="outline" onClick={() => setView("settings")}>{t("dash.noCliAction")}</Button>
+          </div>
         </div>
       )}
 
@@ -191,7 +230,7 @@ export function Dashboard() {
 
 function Row({ label, value }) {
   return (
-    <div className="grid grid-cols-[120px_1fr] gap-3">
+    <div className="grid grid-cols-1 gap-1 sm:grid-cols-[120px_1fr] sm:gap-3">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="break-all font-mono text-xs">{value}</dd>
     </div>

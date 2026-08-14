@@ -16,7 +16,7 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - Manifest `schema_version` 2 with before/after fingerprints, previous layer, and hook ownership.
 - Prompt runner (`run`) with `default` / `override`, `--prompt-file`, streaming, timeout, and process-tree cancel.
 - Productized `breaktest` harness with isolated run directories and a heuristic classifier.
-- Desktop GUI 0.1.0-beta.1 (macOS Apple Silicon and Windows x64 unsigned candidates).
+- Desktop GUI 0.1.0-beta.1 (ad-hoc-signed macOS Apple Silicon and unsigned Windows x64 candidates).
 
 ### Changed
 

@@ -42,12 +42,68 @@ export function cliCancel(runId) {
   return invoke("cli_cancel", { runId });
 }
 
+export function buildRunArgs({
+  prompt,
+  mode = "default",
+  contract = "",
+  model = "",
+  effort = "",
+  cwd = "",
+  timeout = 180,
+  settings = {},
+}) {
+  const args = ["--json", "--lang", "en"];
+  if (settings.defaultGrokDir) args.push("--grok-dir", settings.defaultGrokDir);
+  args.push("run", "--mode", mode, `--prompt=${prompt}`);
+  if (settings.grokBin) args.push("--grok-bin", settings.grokBin);
+  if (contract) args.push("--contract-path", contract);
+  if (model) args.push("--model", model);
+  if (effort) args.push("--reasoning-effort", effort);
+  if (cwd) args.push("--cwd", cwd);
+  args.push("--timeout", String(timeout));
+  return args;
+}
+
+export function buildBreaktestArgs({
+  bank,
+  mode = "default",
+  repetitions = 1,
+  timeout = 180,
+  interval = 0,
+  concurrency = 1,
+  model = "",
+  outputDir = "",
+  settings = {},
+  extra = [],
+}) {
+  const args = ["--json", "--lang", "en"];
+  if (settings.defaultGrokDir) args.push("--grok-dir", settings.defaultGrokDir);
+  args.push(
+    "breaktest",
+    "--bank", bank,
+    "--mode", mode,
+    "--repetitions", String(repetitions),
+    "--timeout", String(timeout),
+    "--interval", String(interval),
+    "--concurrency", String(concurrency),
+  );
+  if (model) args.push("--model", model);
+  if (outputDir) args.push("--output-dir", outputDir);
+  if (settings.grokBin) args.push("--grok-bin", settings.grokBin);
+  args.push(...extra);
+  return args;
+}
+
 export function readManifest(grokDir) {
   return invokeTrackedOperation("read_manifest", { grokDir });
 }
 
 export function detectCli() {
   return invokeTrackedOperation("detect_cli");
+}
+
+export function defaultBreaktestRunDir() {
+  return invokeTrackedOperation("default_breaktest_run_dir");
 }
 
 export function cliVersion(cliPath) {
@@ -62,11 +118,11 @@ export function detectGrok(grokBin) {
   return invokeTrackedOperation("detect_grok", { grokBin: grokBin || null });
 }
 
-export function grokInspect() {
-  const { grokBin, defaultGrokDir } = getSettings();
+export function grokInspect(cwd = "") {
+  const { grokBin } = getSettings();
   return invokeTrackedOperation("grok_inspect", {
     grokBin: grokBin || null,
-    cwd: defaultGrokDir || null,
+    cwd: cwd || null,
   });
 }
 
@@ -106,9 +162,16 @@ export async function resolveCli(
 
 export async function fetchEnvelope(extraArgs, timeoutMs = 30_000) {
   const output = await cliRun([...targetArgs(), ...extraArgs], timeoutMs);
+  return parseCliOutput(output);
+}
+
+export function parseCliOutput(output, envelopeParser = parseEnvelope) {
   if (output.timed_out) throw new CliError(output);
   try {
-    const envelope = parseEnvelope(output.stdout);
+    const envelope = envelopeParser(output.stdout);
+    if (!Number.isInteger(output.exit_code) || envelope.exit_code !== output.exit_code) {
+      throw new Error("CLI process exit code does not match its envelope");
+    }
     envelope._raw = output;
     return envelope;
   } catch (error) {

@@ -1,6 +1,6 @@
 # grok-keysmith desktop
 
-Version `0.1.0-beta.1`. Unsigned macOS `.app/.dmg` and Windows current-user NSIS candidates.
+Version `0.1.0-beta.1`. Ad-hoc-signed macOS `.app/.dmg` and unsigned Windows current-user NSIS candidates.
 
 ```bash
 cd gui

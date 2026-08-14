@@ -59,6 +59,7 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("fixture") === "1") return;
     const generation = beginCliCheck();
     (async () => {
       try {

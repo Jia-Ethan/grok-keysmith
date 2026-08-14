@@ -1,29 +1,55 @@
 //! Process boundary between the desktop client and grok-keysmith CLI.
 
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
-use tokio::time::{timeout, Duration};
+use tokio::task::JoinHandle;
+use tokio::time::{sleep, timeout, Duration};
 use uuid::Uuid;
 
 const MANIFEST_FILENAME: &str = ".grok-keysmith-manifest.json";
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const VERSION_TIMEOUT_MS: u64 = 15_000;
-const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+const VERSION_TIMEOUT_MS: u64 = 30_000;
+const MAX_STDOUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_STDERR_BYTES: usize = 2 * 1024 * 1024;
+const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_STREAM_EVENT_BYTES: usize = 256 * 1024 * 1024;
+const MAX_STREAM_EVENTS: usize = 100_000;
 const SIDECAR_BASENAME: &str = "grok-keysmith-cli";
 const SCRIPT_NAME: &str = "grok-keysmith.py";
+const STREAM_EVENT_PREFIX: &[u8] = b"GROK_KEYSMITH_EVENT ";
+const STREAM_EVENT_SCHEMA: &str = "grok-keysmith.stream.v1";
+const CANCEL_GRACE_MS: u64 = 1_000;
+const OUTPUT_DRAIN_MS: u64 = 2_000;
+const OUTPUT_FORCE_DRAIN_MS: u64 = 2_000;
+const PROCESS_TERMINATE_MS: u64 = 5_000;
 
 #[derive(Default)]
 struct CapturedOutput {
     bytes: Vec<u8>,
     truncated: bool,
     error: Option<String>,
+    stream_events_limited: bool,
+}
+
+#[derive(Default)]
+struct StreamEventBudget {
+    bytes: usize,
+    count: usize,
+}
+
+#[derive(Clone, Debug)]
+struct LiveRun {
+    pid: u32,
+    cancel_file: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,20 +109,22 @@ pub struct CliOutput {
     run_id: Option<String>,
 }
 
-fn live_runs() -> &'static Mutex<HashMap<String, u32>> {
-    static RUNS: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+fn live_runs() -> &'static Mutex<HashMap<String, LiveRun>> {
+    static RUNS: OnceLock<Mutex<HashMap<String, LiveRun>>> = OnceLock::new();
     RUNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn register_run(run_id: &str, pid: u32) {
+fn register_run(run_id: &str, pid: u32, cancel_file: PathBuf) {
     if let Ok(mut guard) = live_runs().lock() {
-        guard.insert(run_id.to_string(), pid);
+        guard.insert(run_id.to_string(), LiveRun { pid, cancel_file });
     }
 }
 
 fn forget_run(run_id: &str) {
     if let Ok(mut guard) = live_runs().lock() {
-        guard.remove(run_id);
+        if let Some(run) = guard.remove(run_id) {
+            let _ = std::fs::remove_file(run.cancel_file);
+        }
     }
 }
 
@@ -135,16 +163,26 @@ pub async fn cli_run_stream(
 
 #[tauri::command]
 pub async fn cli_cancel(run_id: String) -> Result<(), String> {
-    let pid = {
+    let run = {
         let guard = live_runs()
             .lock()
             .map_err(|_| "run table lock poisoned".to_string())?;
-        guard.get(&run_id).copied()
+        guard.get(&run_id).cloned()
     };
-    let Some(pid) = pid else {
+    let Some(run) = run else {
         return Err(format!("unknown run: {run_id}"));
     };
-    terminate_pid(pid).await;
+    tokio::fs::write(&run.cancel_file, b"cancel\n")
+        .await
+        .map_err(|error| format!("写入取消标记失败: {error}"))?;
+    sleep(Duration::from_millis(CANCEL_GRACE_MS)).await;
+    let still_running = live_runs()
+        .lock()
+        .map_err(|_| "run table lock poisoned".to_string())?
+        .contains_key(&run_id);
+    if still_running {
+        terminate_pid_bounded(run.pid).await;
+    }
     Ok(())
 }
 
@@ -155,9 +193,17 @@ async fn run_invocation(
     stream_to: Option<AppHandle>,
 ) -> Result<CliOutput, String> {
     let run_id = Uuid::new_v4().to_string();
+    let cancel_file = std::env::temp_dir().join(format!("grok-keysmith-cancel-{run_id}"));
+    let _ = std::fs::remove_file(&cancel_file);
     let mut command = invocation.command();
     configure_process_tree(&mut command);
     command.kill_on_drop(true);
+    command.env("GROK_KEYSMITH_CANCEL_FILE", &cancel_file);
+    if stream_to.is_some() {
+        command.env("GROK_KEYSMITH_STREAM_EVENTS", "1");
+    } else {
+        command.env_remove("GROK_KEYSMITH_STREAM_EVENTS");
+    }
     let mut child = command
         .args(args)
         .stdout(Stdio::piped())
@@ -169,35 +215,44 @@ async fn run_invocation(
                 invocation.path.to_string_lossy()
             )
         })?;
-    if let Some(pid) = child.id() {
-        register_run(&run_id, pid);
+    let root_pid = child.id();
+    if let Some(pid) = root_pid {
+        register_run(&run_id, pid, cancel_file.clone());
+    }
+    if let Some(handle) = &stream_to {
+        let _ = handle.emit(
+            "cli-run-started",
+            serde_json::json!({ "runId": run_id.clone() }),
+        );
     }
 
     let stdout_reader = child.stdout.take().expect("stdout pipe");
     let stderr_reader = child.stderr.take().expect("stderr pipe");
-    let stdout_app = stream_to.clone();
-    let stderr_app = stream_to.clone();
-    let run_id_out = run_id.clone();
+    let stderr_app = stream_to;
     let run_id_err = run_id.clone();
     let read_task = tokio::spawn(async move {
         tokio::join!(
-            read_capped(stdout_reader, stdout_app, "stdout", run_id_out),
-            read_capped(stderr_reader, stderr_app, "stderr", run_id_err)
+            read_capped(stdout_reader, MAX_STDOUT_BYTES),
+            read_stderr(stderr_reader, stderr_app, run_id_err)
         )
     });
 
     let exit = match timeout(limit, child.wait()).await {
         Ok(Ok(status)) => status.code().unwrap_or(-1),
         Ok(Err(error)) => {
-            terminate_process_tree(&mut child).await;
+            terminate_process_tree_bounded(&mut child).await;
             forget_run(&run_id);
-            let _ = read_task.await;
+            let _ = drain_read_task(read_task, &mut child, root_pid).await;
             return Err(format!("等待 CLI 进程失败: {error}"));
         }
         Err(_) => {
-            terminate_process_tree(&mut child).await;
+            let _ = tokio::fs::write(&cancel_file, b"timeout\n").await;
+            match timeout(Duration::from_millis(CANCEL_GRACE_MS), child.wait()).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) | Err(_) => terminate_process_tree_bounded(&mut child).await,
+            }
             forget_run(&run_id);
-            let (stdout, stderr) = read_task.await.unwrap_or_default();
+            let (stdout, stderr) = drain_read_task(read_task, &mut child, root_pid).await?;
             return Ok(CliOutput {
                 stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr.bytes).into_owned(),
@@ -209,9 +264,7 @@ async fn run_invocation(
     };
 
     forget_run(&run_id);
-    let (stdout, stderr) = read_task
-        .await
-        .map_err(|error| format!("读取 CLI 输出任务失败: {error}"))?;
+    let (stdout, stderr) = drain_read_task(read_task, &mut child, root_pid).await?;
     validate_captured_output(&stdout, &stderr)?;
     Ok(CliOutput {
         stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
@@ -220,6 +273,36 @@ async fn run_invocation(
         timed_out: false,
         run_id: Some(run_id),
     })
+}
+
+type OutputReadTask = JoinHandle<(CapturedOutput, CapturedOutput)>;
+
+async fn drain_read_task(
+    mut read_task: OutputReadTask,
+    child: &mut Child,
+    root_pid: Option<u32>,
+) -> Result<(CapturedOutput, CapturedOutput), String> {
+    match timeout(Duration::from_millis(OUTPUT_DRAIN_MS), &mut read_task).await {
+        Ok(result) => return result.map_err(|error| format!("读取 CLI 输出任务失败: {error}")),
+        Err(_) => {}
+    }
+
+    if let Some(pid) = child.id() {
+        terminate_pid_bounded(pid).await;
+    } else if let Some(pid) = root_pid {
+        terminate_lingering_group_bounded(pid).await;
+    }
+    let _ = timeout(Duration::from_millis(PROCESS_TERMINATE_MS), child.kill()).await;
+    let _ = timeout(Duration::from_millis(PROCESS_TERMINATE_MS), child.wait()).await;
+
+    match timeout(Duration::from_millis(OUTPUT_FORCE_DRAIN_MS), &mut read_task).await {
+        Ok(result) => result.map_err(|error| format!("读取 CLI 输出任务失败: {error}")),
+        Err(_) => {
+            read_task.abort();
+            let _ = timeout(Duration::from_millis(500), read_task).await;
+            Err("CLI 输出管道在进程结束后仍未关闭".to_string())
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -237,36 +320,54 @@ fn configure_process_tree(command: &mut Command) {
 fn configure_process_tree(_command: &mut Command) {}
 
 #[cfg(unix)]
-async fn terminate_process_tree(child: &mut Child) {
-    if let Some(pid) = child.id() {
-        terminate_pid(pid).await;
+async fn terminate_pid(pid: u32) {
+    let mut targets = unix_descendant_pids(pid).await;
+    targets.push(pid);
+    for target in targets {
+        let Ok(target) = i32::try_from(target) else {
+            continue;
+        };
+        unsafe {
+            libc::kill(-target, libc::SIGKILL);
+            libc::kill(target, libc::SIGKILL);
+        }
     }
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-#[cfg(windows)]
-async fn terminate_process_tree(child: &mut Child) {
-    if let Some(pid) = child.id() {
-        terminate_pid(pid).await;
-    }
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-#[cfg(not(any(unix, windows)))]
-async fn terminate_process_tree(child: &mut Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
 }
 
 #[cfg(unix)]
-async fn terminate_pid(pid: u32) {
-    if let Ok(pid) = i32::try_from(pid) {
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
+async fn unix_descendant_pids(root: u32) -> Vec<u32> {
+    let output = match Command::new("ps")
+        .args(["-axo", "pid=,ppid="])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .await
+    {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
+    };
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) else {
+            continue;
+        };
+        children.entry(ppid).or_default().push(pid);
+    }
+    let mut descendants = Vec::new();
+    let mut pending = vec![root];
+    while let Some(parent) = pending.pop() {
+        if let Some(found) = children.get(&parent) {
+            for child in found {
+                descendants.push(*child);
+                pending.push(*child);
+            }
         }
     }
+    descendants
 }
 
 #[cfg(windows)]
@@ -282,18 +383,62 @@ async fn terminate_pid(pid: u32) {
 #[cfg(not(any(unix, windows)))]
 async fn terminate_pid(_pid: u32) {}
 
+async fn terminate_pid_bounded(pid: u32) {
+    let _ = timeout(
+        Duration::from_millis(PROCESS_TERMINATE_MS),
+        terminate_pid(pid),
+    )
+    .await;
+}
+
+#[cfg(unix)]
+async fn terminate_lingering_group(pid: u32) {
+    if let Ok(pid) = i32::try_from(pid) {
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminate_lingering_group(_pid: u32) {}
+
+async fn terminate_lingering_group_bounded(pid: u32) {
+    let _ = timeout(
+        Duration::from_millis(PROCESS_TERMINATE_MS),
+        terminate_lingering_group(pid),
+    )
+    .await;
+}
+
+async fn terminate_process_tree_bounded(child: &mut Child) {
+    if let Some(pid) = child.id() {
+        terminate_pid_bounded(pid).await;
+    }
+    let _ = timeout(Duration::from_millis(PROCESS_TERMINATE_MS), child.kill()).await;
+    let _ = timeout(Duration::from_millis(PROCESS_TERMINATE_MS), child.wait()).await;
+}
+
 fn validate_captured_output(
     stdout: &CapturedOutput,
     stderr: &CapturedOutput,
 ) -> Result<(), String> {
     let mut issues = Vec::new();
-    for (label, captured) in [("stdout", stdout), ("stderr", stderr)] {
+    for (label, captured, limit) in [
+        ("stdout", stdout, MAX_STDOUT_BYTES),
+        ("stderr", stderr, MAX_STDERR_BYTES),
+    ] {
         if captured.truncated {
-            issues.push(format!("{label} 超过 {MAX_OUTPUT_BYTES} 字节上限"));
+            issues.push(format!("{label} 超过 {limit} 字节上限"));
         }
         if let Some(error) = &captured.error {
             issues.push(format!("读取 {label} 失败: {error}"));
         }
+    }
+    if stderr.stream_events_limited {
+        issues.push(format!(
+            "流事件超过 {MAX_STREAM_EVENTS} 条或 {MAX_STREAM_EVENT_BYTES} 字节上限"
+        ));
     }
     if issues.is_empty() {
         Ok(())
@@ -305,12 +450,19 @@ fn validate_captured_output(
     }
 }
 
-async fn read_capped<R>(
-    mut reader: R,
-    app: Option<AppHandle>,
-    channel: &'static str,
-    run_id: String,
-) -> CapturedOutput
+fn append_capped(captured: &mut CapturedOutput, bytes: &[u8], limit: usize) {
+    let remaining = limit.saturating_sub(captured.bytes.len());
+    if remaining > 0 {
+        captured
+            .bytes
+            .extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+    }
+    if bytes.len() > remaining {
+        captured.truncated = true;
+    }
+}
+
+async fn read_capped<R>(mut reader: R, limit: usize) -> CapturedOutput
 where
     R: AsyncRead + Unpin,
 {
@@ -325,26 +477,140 @@ where
                 break;
             }
         };
-        if let Some(handle) = &app {
-            let text = String::from_utf8_lossy(&chunk[..read]).into_owned();
+        append_capped(&mut captured, &chunk[..read], limit);
+    }
+    captured
+}
+
+enum ProtocolLineResult {
+    Consumed,
+    Invalid,
+    Limited,
+}
+
+fn emit_protocol_line(
+    line: &[u8],
+    app: &Option<AppHandle>,
+    run_id: &str,
+    budget: &mut StreamEventBudget,
+) -> ProtocolLineResult {
+    let Some(payload) = line.strip_prefix(STREAM_EVENT_PREFIX) else {
+        return ProtocolLineResult::Invalid;
+    };
+    if budget.count >= MAX_STREAM_EVENTS || budget.bytes >= MAX_STREAM_EVENT_BYTES {
+        return ProtocolLineResult::Limited;
+    }
+    let payload = payload.strip_suffix(b"\r").unwrap_or(payload);
+    let event: Result<Value, _> = serde_json::from_slice(payload);
+    let Ok(mut event) = event else {
+        return ProtocolLineResult::Invalid;
+    };
+    let Some(object) = event.as_object_mut() else {
+        return ProtocolLineResult::Invalid;
+    };
+    if object.get("schema").and_then(Value::as_str) != Some(STREAM_EVENT_SCHEMA) {
+        return ProtocolLineResult::Invalid;
+    }
+    let Some(event_type) = object.get("type").and_then(Value::as_str) else {
+        return ProtocolLineResult::Invalid;
+    };
+    match event_type {
+        "output" => {
+            if !matches!(
+                object.get("channel").and_then(Value::as_str),
+                Some("stdout" | "stderr")
+            ) || object.get("text").and_then(Value::as_str).is_none()
+            {
+                return ProtocolLineResult::Invalid;
+            }
+        }
+        "case-start" | "case-complete" | "summary" => {
+            if object.contains_key("channel") {
+                return ProtocolLineResult::Invalid;
+            }
+        }
+        _ => return ProtocolLineResult::Invalid,
+    }
+
+    let Some(next_bytes) = budget.bytes.checked_add(line.len()) else {
+        return ProtocolLineResult::Limited;
+    };
+    if budget.count >= MAX_STREAM_EVENTS || next_bytes > MAX_STREAM_EVENT_BYTES {
+        return ProtocolLineResult::Limited;
+    }
+    budget.count += 1;
+    budget.bytes = next_bytes;
+    object.insert("runId".to_string(), Value::String(run_id.to_string()));
+    if let Some(handle) = app {
+        let _ = handle.emit("cli-stream", event);
+    }
+    ProtocolLineResult::Consumed
+}
+
+fn capture_stderr_line(
+    captured: &mut CapturedOutput,
+    line: &[u8],
+    app: &Option<AppHandle>,
+    run_id: &str,
+    budget: &mut StreamEventBudget,
+) {
+    match emit_protocol_line(line, app, run_id, budget) {
+        ProtocolLineResult::Consumed => return,
+        ProtocolLineResult::Limited => {
+            captured.stream_events_limited = true;
+            return;
+        }
+        ProtocolLineResult::Invalid => {}
+    }
+    let before = captured.bytes.len();
+    append_capped(captured, line, MAX_STDERR_BYTES);
+    append_capped(captured, b"\n", MAX_STDERR_BYTES);
+    let emitted = String::from_utf8_lossy(&captured.bytes[before..]).into_owned();
+    if !emitted.is_empty() {
+        if let Some(handle) = app {
             let _ = handle.emit(
                 "cli-stream",
                 serde_json::json!({
                     "runId": run_id,
-                    "channel": channel,
-                    "text": text,
+                    "type": "output",
+                    "channel": "stderr",
+                    "text": emitted,
                 }),
             );
         }
-        let remaining = MAX_OUTPUT_BYTES.saturating_sub(captured.bytes.len());
-        if remaining > 0 {
-            captured
-                .bytes
-                .extend_from_slice(&chunk[..read.min(remaining)]);
+    }
+}
+
+async fn read_stderr<R>(mut reader: R, app: Option<AppHandle>, run_id: String) -> CapturedOutput
+where
+    R: AsyncRead + Unpin,
+{
+    let mut captured = CapturedOutput::default();
+    let mut chunk = [0_u8; 8192];
+    let mut pending = Vec::new();
+    let mut event_budget = StreamEventBudget::default();
+    loop {
+        let read = match reader.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) => {
+                captured.error = Some(error.to_string());
+                break;
+            }
+        };
+        pending.extend_from_slice(&chunk[..read]);
+        while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+            let mut line = pending.drain(..=newline).collect::<Vec<_>>();
+            line.pop();
+            capture_stderr_line(&mut captured, &line, &app, &run_id, &mut event_budget);
         }
-        if read > remaining {
-            captured.truncated = true;
+        if pending.len() > MAX_STDERR_BYTES {
+            append_capped(&mut captured, &pending, MAX_STDERR_BYTES);
+            pending.clear();
         }
+    }
+    if !pending.is_empty() {
+        capture_stderr_line(&mut captured, &pending, &app, &run_id, &mut event_budget);
     }
     captured
 }
@@ -373,15 +639,49 @@ pub async fn read_manifest(grok_dir: String) -> Result<serde_json::Value, String
     {
         return Err("拒绝读取清单以外的文件".to_string());
     }
-    let content = tokio::fs::read(&canonical_manifest)
+    let metadata = tokio::fs::metadata(&canonical_manifest)
+        .await
+        .map_err(|error| format!("读取部署清单元数据失败: {error}"))?;
+    if metadata.len() > MAX_MANIFEST_BYTES as u64 {
+        return Err(format!("部署清单超过 {MAX_MANIFEST_BYTES} 字节上限"));
+    }
+    let file = tokio::fs::File::open(&canonical_manifest)
         .await
         .map_err(|error| format!("读取部署清单失败: {error}"))?;
+    let mut reader = file.take((MAX_MANIFEST_BYTES + 1) as u64);
+    let mut content = Vec::new();
+    reader
+        .read_to_end(&mut content)
+        .await
+        .map_err(|error| format!("读取部署清单失败: {error}"))?;
+    if content.len() > MAX_MANIFEST_BYTES {
+        return Err(format!("部署清单超过 {MAX_MANIFEST_BYTES} 字节上限"));
+    }
     serde_json::from_slice(&content).map_err(|error| format!("部署清单不是合法 JSON: {error}"))
 }
 
 #[tauri::command]
 pub async fn detect_cli() -> Result<Option<CliDescriptor>, String> {
     Ok(locate_cli()?.as_ref().map(CliDescriptor::from))
+}
+
+#[tauri::command]
+pub fn default_breaktest_run_dir() -> Result<String, String> {
+    let home = home_directory().ok_or_else(|| "无法确定用户目录".to_string())?;
+    if !home.is_absolute() {
+        return Err("用户目录不是绝对路径".to_string());
+    }
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("系统时间无效: {error}"))?
+        .as_secs();
+    let suffix = Uuid::new_v4().simple().to_string();
+    Ok(home
+        .join(".grok-keysmith")
+        .join("breaktest-runs")
+        .join(format!("{seconds}-{}", &suffix[..12]))
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[tauri::command]
@@ -448,24 +748,26 @@ pub async fn grok_inspect(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("无法启动 grok inspect: {error}"))?;
+    let root_pid = child.id();
     let stdout_reader = child.stdout.take().expect("stdout pipe");
     let stderr_reader = child.stderr.take().expect("stderr pipe");
     let read_task = tokio::spawn(async move {
         tokio::join!(
-            read_capped(stdout_reader, None, "stdout", String::new()),
-            read_capped(stderr_reader, None, "stderr", String::new())
+            read_capped(stdout_reader, MAX_STDOUT_BYTES),
+            read_stderr(stderr_reader, None, String::new())
         )
     });
     let exit = match timeout(Duration::from_secs(20), child.wait()).await {
         Ok(Ok(status)) => status.code().unwrap_or(-1),
         Ok(Err(error)) => {
-            terminate_process_tree(&mut child).await;
-            let _ = read_task.await;
+            terminate_process_tree_bounded(&mut child).await;
+            let _ = drain_read_task(read_task, &mut child, root_pid).await;
             return Err(format!("等待 grok inspect 失败: {error}"));
         }
         Err(_) => {
-            terminate_process_tree(&mut child).await;
-            let (stdout, stderr) = read_task.await.unwrap_or_default();
+            terminate_process_tree_bounded(&mut child).await;
+            let (stdout, stderr) = drain_read_task(read_task, &mut child, root_pid).await?;
+            validate_captured_output(&stdout, &stderr)?;
             return Ok(CliOutput {
                 stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr.bytes).into_owned(),
@@ -475,7 +777,8 @@ pub async fn grok_inspect(
             });
         }
     };
-    let (stdout, stderr) = read_task.await.unwrap_or_default();
+    let (stdout, stderr) = drain_read_task(read_task, &mut child, root_pid).await?;
+    validate_captured_output(&stdout, &stderr)?;
     Ok(CliOutput {
         stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
         stderr: String::from_utf8_lossy(&stderr.bytes).into_owned(),
@@ -491,9 +794,84 @@ pub async fn write_text_file(path: String, contents: String) -> Result<(), Strin
     if target.as_os_str().is_empty() {
         return Err("empty path".to_string());
     }
-    tokio::fs::write(&target, contents)
+    if !target.is_absolute() {
+        return Err("保存路径必须是绝对路径".to_string());
+    }
+    let parent = target
+        .parent()
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| "保存目录不存在".to_string())?;
+    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("拒绝覆盖非普通文件".to_string());
+        }
+    }
+
+    let nonce = Uuid::new_v4().simple().to_string();
+    let basename = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("output");
+    let temporary = parent.join(format!(".{basename}.{nonce}.tmp"));
+    let backup = parent.join(format!(".{basename}.{nonce}.backup"));
+    let previous_permissions = std::fs::metadata(&target)
+        .ok()
+        .map(|metadata| metadata.permissions());
+
+    let mut handle = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
         .await
-        .map_err(|error| format!("写入失败: {error}"))
+        .map_err(|error| format!("创建临时输出失败: {error}"))?;
+    let write_result = async {
+        handle
+            .write_all(contents.as_bytes())
+            .await
+            .map_err(|error| format!("写入临时输出失败: {error}"))?;
+        handle
+            .flush()
+            .await
+            .map_err(|error| format!("刷新临时输出失败: {error}"))?;
+        handle
+            .sync_all()
+            .await
+            .map_err(|error| format!("同步临时输出失败: {error}"))?;
+        Ok::<(), String>(())
+    }
+    .await;
+    drop(handle);
+    if let Err(error) = write_result {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(error);
+    }
+    if let Some(permissions) = previous_permissions {
+        if let Err(error) = tokio::fs::set_permissions(&temporary, permissions).await {
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return Err(format!("保留输出权限失败: {error}"));
+        }
+    }
+
+    let had_target = target.is_file();
+    if had_target {
+        if let Err(error) = tokio::fs::rename(&target, &backup).await {
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return Err(format!("备份现有输出失败: {error}"));
+        }
+    }
+    if let Err(error) = tokio::fs::rename(&temporary, &target).await {
+        if had_target {
+            let _ = tokio::fs::rename(&backup, &target).await;
+        }
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(format!("替换输出失败: {error}"));
+    }
+    if had_target {
+        tokio::fs::remove_file(&backup)
+            .await
+            .map_err(|error| format!("输出已保存，但清理临时备份失败: {error}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -508,10 +886,21 @@ pub async fn open_path(path: String) -> Result<(), String> {
     let status = Command::new("explorer").arg(&target).status();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let status = Command::new("xdg-open").arg(&target).status();
-    status
+    let status = status
         .await
         .map_err(|error| format!("打开路径失败: {error}"))?;
-    Ok(())
+    ensure_successful_status(status, "打开路径")
+}
+
+fn ensure_successful_status(status: ExitStatus, operation: &str) -> Result<(), String> {
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{operation}命令失败 (exit {})",
+            status.code().unwrap_or(-1)
+        ))
+    }
 }
 
 fn resolve_invocation(cli_path: Option<&str>) -> Result<CliInvocation, String> {
@@ -692,6 +1081,10 @@ fn find_program_in_path(name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn valid_output_event() -> &'static [u8] {
+        br#"GROK_KEYSMITH_EVENT {"schema":"grok-keysmith.stream.v1","type":"output","channel":"stdout","text":"hello"}"#
+    }
+
     #[test]
     fn bundled_runtime_wins_over_file_extension() {
         assert_eq!(
@@ -723,5 +1116,185 @@ mod tests {
         assert!(candidates[..candidates.len() - 1]
             .iter()
             .all(|candidate| !candidate.ends_with(".py")));
+    }
+
+    #[test]
+    fn version_probe_allows_frozen_sidecar_cold_start() {
+        assert_eq!(version_probe_timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn stream_protocol_lines_are_not_captured_as_diagnostics() {
+        let mut captured = CapturedOutput::default();
+        let mut budget = StreamEventBudget::default();
+        capture_stderr_line(
+            &mut captured,
+            valid_output_event(),
+            &None,
+            "run-1",
+            &mut budget,
+        );
+        assert!(captured.bytes.is_empty());
+        assert_eq!(budget.count, 1);
+
+        capture_stderr_line(
+            &mut captured,
+            b"plain diagnostic",
+            &None,
+            "run-1",
+            &mut budget,
+        );
+        assert_eq!(captured.bytes, b"plain diagnostic\n");
+    }
+
+    #[test]
+    fn malformed_protocol_lines_remain_visible() {
+        let mut captured = CapturedOutput::default();
+        let mut budget = StreamEventBudget::default();
+        capture_stderr_line(
+            &mut captured,
+            b"GROK_KEYSMITH_EVENT not-json",
+            &None,
+            "run-1",
+            &mut budget,
+        );
+        assert_eq!(captured.bytes, b"GROK_KEYSMITH_EVENT not-json\n");
+    }
+
+    #[test]
+    fn protocol_requires_known_schema_type_and_channel() {
+        for line in [
+            br#"GROK_KEYSMITH_EVENT {"schema":"other","type":"output","channel":"stdout","text":"x"}"#.as_slice(),
+            br#"GROK_KEYSMITH_EVENT {"schema":"grok-keysmith.stream.v1","type":"unknown"}"#.as_slice(),
+            br#"GROK_KEYSMITH_EVENT {"schema":"grok-keysmith.stream.v1","type":"output","channel":"log","text":"x"}"#.as_slice(),
+            br#"GROK_KEYSMITH_EVENT {"schema":"grok-keysmith.stream.v1","type":"output","text":"x"}"#.as_slice(),
+            br#"GROK_KEYSMITH_EVENT {"schema":"grok-keysmith.stream.v1","type":"summary","channel":"stdout"}"#.as_slice(),
+        ] {
+            let mut captured = CapturedOutput::default();
+            let mut budget = StreamEventBudget::default();
+            capture_stderr_line(&mut captured, line, &None, "run-1", &mut budget);
+            assert_eq!(captured.bytes, [line, b"\n"].concat());
+            assert_eq!(budget.count, 0);
+        }
+    }
+
+    #[test]
+    fn protocol_enforces_total_event_count_and_bytes() {
+        let mut count_captured = CapturedOutput::default();
+        let mut count_budget = StreamEventBudget {
+            count: MAX_STREAM_EVENTS,
+            bytes: 0,
+        };
+        capture_stderr_line(
+            &mut count_captured,
+            valid_output_event(),
+            &None,
+            "run-1",
+            &mut count_budget,
+        );
+        assert!(count_captured.stream_events_limited);
+        assert!(count_captured.bytes.is_empty());
+
+        let mut byte_captured = CapturedOutput::default();
+        let mut byte_budget = StreamEventBudget {
+            count: 0,
+            bytes: MAX_STREAM_EVENT_BYTES,
+        };
+        capture_stderr_line(
+            &mut byte_captured,
+            valid_output_event(),
+            &None,
+            "run-1",
+            &mut byte_budget,
+        );
+        assert!(byte_captured.stream_events_limited);
+        assert!(validate_captured_output(&CapturedOutput::default(), &byte_captured).is_err());
+    }
+
+    #[test]
+    fn captured_output_rejects_truncation_and_read_errors() {
+        let truncated = CapturedOutput {
+            truncated: true,
+            ..CapturedOutput::default()
+        };
+        let failed = CapturedOutput {
+            error: Some("pipe closed".to_string()),
+            ..CapturedOutput::default()
+        };
+        assert!(validate_captured_output(&truncated, &CapturedOutput::default()).is_err());
+        assert!(validate_captured_output(&CapturedOutput::default(), &failed).is_err());
+    }
+
+    #[test]
+    fn nonzero_open_command_status_is_rejected() {
+        #[cfg(windows)]
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "exit", "7"])
+            .status()
+            .expect("cmd status");
+        #[cfg(not(windows))]
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 7"])
+            .status()
+            .expect("sh status");
+        let error = ensure_successful_status(status, "fixture").expect_err("nonzero exit");
+        assert!(error.contains("exit 7"));
+    }
+
+    #[tokio::test]
+    async fn manifest_read_rejects_oversized_files() {
+        let directory =
+            std::env::temp_dir().join(format!("grok-keysmith-manifest-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("fixture directory");
+        std::fs::write(
+            directory.join(MANIFEST_FILENAME),
+            vec![b'x'; MAX_MANIFEST_BYTES + 1],
+        )
+        .expect("fixture manifest");
+        let error = read_manifest(directory.to_string_lossy().into_owned())
+            .await
+            .expect_err("oversized manifest must fail");
+        assert!(error.contains("字节上限"));
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[tokio::test]
+    async fn text_save_replaces_existing_file_without_residue() {
+        let directory =
+            std::env::temp_dir().join(format!("grok-keysmith-output-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("fixture directory");
+        let target = directory.join("output.txt");
+        std::fs::write(&target, b"before").expect("fixture output");
+        write_text_file(target.to_string_lossy().into_owned(), "after".to_string())
+            .await
+            .expect("atomic output save");
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("saved output"),
+            "after"
+        );
+        assert_eq!(
+            std::fs::read_dir(&directory)
+                .expect("fixture listing")
+                .count(),
+            1
+        );
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn invocation_bounds_pipe_drain_after_root_exit() {
+        let invocation = CliInvocation {
+            path: PathBuf::from("/bin/sh"),
+            program: PathBuf::from("/bin/sh"),
+            prefix_args: vec![OsString::from("-c"), OsString::from("sleep 30 & exit 0")],
+            runtime: CliRuntime::Executable,
+        };
+        let started = std::time::Instant::now();
+        let output = run_invocation(&invocation, &[], Duration::from_secs(10), None)
+            .await
+            .expect("bounded drain");
+        assert_eq!(output.exit_code, 0);
+        assert!(started.elapsed() < Duration::from_secs(8));
     }
 }

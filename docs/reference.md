@@ -79,9 +79,27 @@ python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 
 部署自定义 Markdown 而非内置提示词。manifest 会记录 `prompt_source: custom:<path>`。
 
+### Prompt Runner
+
+```bash
+python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
+python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+```
+
+`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。
+
+### Breaktest
+
+```bash
+python3 grok-keysmith.py breaktest --bank prompts.txt --mode ab --output-dir /absolute/run-dir
+python3 grok-keysmith.py breaktest --bank prompts.txt --mode ab --output-dir /absolute/run-dir --resume
+```
+
+题库每行包含 4 个 `|` 分隔字段。并发数范围为 1 到 4；`--output-dir` 是本次运行目录，恢复与重试必须指向已有 `run-manifest.json` 的同一目录。
+
 ### 维护者验证
 
-仓库没有第三方运行时依赖或已提交的测试套件。提交前至少执行：
+CLI 运行时仅使用 Python 标准库；仓库包含隔离 `HOME`、fake Grok、React 与 Rust 测试。提交前至少执行：
 
 ```bash
 python3 -B grok-keysmith.py --version
@@ -102,8 +120,14 @@ bundled = base64.b64decode(constants["BUNDLED_PROMPT_B64"])
 prompt = Path("examples/grok-unrestricted.md").read_bytes()
 version = Path("VERSION").read_text(encoding="utf-8").strip()
 assert version == constants["VERSION"]
-for document in ("README.md", "CHANGELOG.md", "SECURITY.md"):
-    assert f"v{version}" in Path(document).read_text(encoding="utf-8")
+for document in (
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "docs/releases/desktop-v0.1.0-beta.1.md",
+):
+    assert version in Path(document).read_text(encoding="utf-8")
 assert bundled == prompt
 assert hashlib.sha256(prompt).hexdigest() == constants["BUNDLED_PROMPT_SHA256"]
 PY
@@ -112,6 +136,9 @@ trap 'rm -rf "$tmp_home"' EXIT
 mkdir "$tmp_home/.grok"
 HOME="$tmp_home" python3 -B grok-keysmith.py --status
 HOME="$tmp_home" python3 -B grok-keysmith.py --dry-run
+python3 -m py_compile grok-keysmith.py grok_keysmith_runner.py grok_keysmith_breaktest.py
+python3 -m pytest -p no:cacheprovider -q tests
+(cd gui && npm test && npm run build && cargo test --locked --manifest-path src-tauri/Cargo.toml)
 git diff --check
 ```
 
@@ -197,16 +224,38 @@ Restores `.json.disabled` to `.json` without affecting the instruction file or c
 python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 ```
 
+### Prompt Runner
+
+```bash
+python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
+python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+```
+
+`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run.
+
+### Breaktest
+
+```bash
+python3 grok-keysmith.py breaktest --bank prompts.txt --mode ab --output-dir /absolute/run-dir
+python3 grok-keysmith.py breaktest --bank prompts.txt --mode ab --output-dir /absolute/run-dir --resume
+```
+
+Each bank line has four `|`-separated fields. Concurrency is limited to 1 through 4. `--output-dir` is the exact run directory; resume and retry must point to the same directory containing `run-manifest.json`.
+
 ### Maintainer verification
 
-The repository has no third-party runtime dependencies or committed test suite. Before committing, run the verification block in the Chinese section above: parse the Python source, compare the embedded prompt byte-for-byte with `examples/grok-unrestricted.md`, verify its SHA-256, exercise `--status` and `--dry-run` under an isolated temporary `HOME`, and finish with `git diff --check`.
+The CLI runtime uses only the Python standard library. The repository includes isolated-`HOME`, fake-Grok, React, and Rust tests. Before committing, run the verification block in the Chinese section above.
 
 ### Project layout
 
 ```text
 grok-keysmith/
 ├── grok-keysmith.py
+├── grok_keysmith_runner.py
+├── grok_keysmith_breaktest.py
 ├── examples/grok-unrestricted.md
+├── tests/
+├── gui/
 ├── VERSION
 ├── docs/
 ├── README.md / README.en.md

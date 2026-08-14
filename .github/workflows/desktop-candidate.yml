@@ -75,12 +75,17 @@ jobs:
 
       - name: Frontend and Python gates
         working-directory: gui
+        shell: bash
         env:
           HOME: ${{ runner.temp }}/isolated-home
         run: |
           npm ci
           npm test
           npm run build
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npm audit --audit-level=high
+            npm run audit:gui
+          fi
           python -m pip install "pytest==8.4.2"
           python -m pytest -p no:cacheprovider -q ../tests
           mkdir -p src-tauri/binaries
@@ -100,9 +105,31 @@ jobs:
       - name: Native sidecar and Tauri
         if: matrix.target != 'linux-static'
         working-directory: gui
+        shell: bash
         run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
           python -m pip install "PyInstaller==${PYINSTALLER_VERSION}"
           npm run build:sidecar -- --target ${{ matrix.target }}
           npx tauri build
         env:
           HOME: ${{ runner.temp }}/isolated-home
+
+      - name: Upload macOS candidate
+        if: matrix.target == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: grok-keysmith-macos-aarch64
+          path: gui/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Windows candidate
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: grok-keysmith-windows-x64
+          path: gui/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

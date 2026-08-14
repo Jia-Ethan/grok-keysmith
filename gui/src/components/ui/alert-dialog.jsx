@@ -36,7 +36,7 @@ function AlertDialogTitle({ className, ...props }) {
 function AlertDialogDescription({ className, ...props }) {
   return (
     <AlertDialogPrimitive.Description
-      className={cn("mt-2 text-sm text-secondary-foreground break-all", className)}
+      className={cn("mt-2 whitespace-pre-wrap break-all text-sm text-secondary-foreground", className)}
       {...props}
     />
   );

@@ -1,6 +1,10 @@
 {
   "bundle": {
     "targets": ["app", "dmg"],
-    "externalBin": ["binaries/grok-keysmith-cli"]
+    "externalBin": ["binaries/grok-keysmith-cli"],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    }
   }
 }

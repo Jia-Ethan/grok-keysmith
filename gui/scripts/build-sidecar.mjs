@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -42,6 +42,7 @@ rmSync(workDir, { recursive: true, force: true });
 rmSync(specDir, { recursive: true, force: true });
 
 const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+const dataSeparator = process.platform === "win32" ? ";" : ":";
 const pythonEnv = { ...process.env, PYTHONNOUSERSITE: "1" };
 delete pythonEnv.PYTHONHOME;
 delete pythonEnv.PYTHONPATH;
@@ -64,11 +65,9 @@ const result = spawnSync(
     "--specpath",
     specDir,
     "--add-data",
-    `${join(repoDir, "grok_keysmith_runner.py")}${process.platform === "win32" ? ";" : ":"} .`,
+    `${join(repoDir, "breaktest", "prompts.txt")}${dataSeparator}breaktest`,
     "--add-data",
-    `${join(repoDir, "grok_keysmith_breaktest.py")}${process.platform === "win32" ? ";" : ":"} .`,
-    "--add-data",
-    `${join(repoDir, "breaktest")}${process.platform === "win32" ? ";" : ":"} breaktest`,
+    `${join(repoDir, "breaktest", "prompts-46.txt")}${dataSeparator}breaktest`,
     "--hidden-import",
     "grok_keysmith_runner",
     "--hidden-import",
@@ -97,6 +96,25 @@ const smoke = spawnSync(destination, ["--version"], { encoding: "utf8" });
 if (smoke.error) throw smoke.error;
 if (smoke.status !== 0 || !String(smoke.stdout).includes(expectedCliVersion)) {
   throw new Error(`Frozen sidecar version smoke failed: ${smoke.stderr || smoke.stdout}`);
+}
+
+for (const bank of ["prompts.txt", "prompts-46.txt"]) {
+  const bankSmoke = spawnSync(
+    destination,
+    ["--json", "--lang", "en", "breaktest", "--bank", bank, "--concurrency", "99"],
+    { encoding: "utf8" },
+  );
+  if (bankSmoke.error) throw bankSmoke.error;
+  let envelope;
+  try {
+    envelope = JSON.parse(String(bankSmoke.stdout));
+  } catch {
+    throw new Error(`Frozen sidecar ${bank} smoke returned invalid JSON: ${bankSmoke.stderr || bankSmoke.stdout}`);
+  }
+  const diagnostics = Array.isArray(envelope.diagnostics) ? envelope.diagnostics.join(" ") : "";
+  if (bankSmoke.status !== 2 || envelope.ok !== false || !diagnostics.includes("concurrency")) {
+    throw new Error(`Frozen sidecar ${bank} data smoke failed: ${bankSmoke.stderr || bankSmoke.stdout}`);
+  }
 }
 
 console.log(`Built ${destination}`);

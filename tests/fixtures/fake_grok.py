@@ -22,6 +22,9 @@ def _prompt_from_args(argv):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    marker = os.environ.get("FAKE_GROK_MARKER")
+    if marker:
+        Path(marker).write_text("invoked\n", encoding="utf-8")
     mode = os.environ.get("FAKE_GROK_MODE", "success")
     if "--version" in argv or (argv and argv[0] == "version"):
         sys.stdout.write("grok 1.0.3-fake (test)\n")

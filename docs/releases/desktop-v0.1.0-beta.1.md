@@ -1,6 +1,6 @@
 # Desktop v0.1.0-beta.1
 
-Unsigned local candidates only. No Apple notarization, no Authenticode, no GitHub Release.
+Local candidates only. macOS uses an ad-hoc signature with Hardened Runtime disabled for the frozen Python sidecar; there is no Apple Developer ID, notarization, Authenticode, or GitHub Release.
 
 - Product: `grok-keysmith`
 - Package: `grok-keysmith-gui`
@@ -12,7 +12,7 @@ Unsigned local candidates only. No Apple notarization, no Authenticode, no GitHu
 
 | Host | Artifact | Status |
 | --- | --- | --- |
-| macOS Apple Silicon | unsigned `.app` / `.dmg` | built locally when the host is available |
+| macOS Apple Silicon | ad-hoc-signed `.app` / `.dmg` | built locally when the host is available |
 | Windows x64 | current-user NSIS + WebView2 bootstrapper | native gate only on a Windows x64 host |
 
 ## Pages

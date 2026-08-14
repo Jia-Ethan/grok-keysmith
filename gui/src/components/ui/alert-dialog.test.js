@@ -29,4 +29,8 @@ describe("AlertDialog layout contract", () => {
       /AlertDialogPrimitive\.Content[\s\S]*"[^"]*\bcard-glass\b[^"]*\bfixed\b[^"]*"/,
     );
   });
+
+  it("preserves line breaks in confirmation details", () => {
+    expect(dialogSource).toMatch(/AlertDialogPrimitive\.Description[\s\S]*\bwhitespace-pre-wrap\b/);
+  });
 });

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import stat
 import subprocess
@@ -7,7 +8,17 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import CLI, cli_env, parse_envelope, run_cli
+
+
+def load_cli_module():
+    spec = importlib.util.spec_from_file_location("grok_keysmith_cli_test", str(CLI))
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_two_processes_one_writer(isolated_home):
@@ -31,6 +42,35 @@ def test_two_processes_one_writer(isolated_home):
         assert envelope["ok"] is False
         assert any("lock" in item.lower() for item in envelope["diagnostics"])
         assert not (grok_dir / ".grok-keysmith-manifest.json").exists()
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "operation"),
+    [
+        (["--recover", "--yes"], "recover"),
+        (["--restore-hooks", "--yes"], "restore_hooks"),
+    ],
+)
+def test_lock_error_reports_requested_operation(isolated_home, arguments, operation):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    lock = grok_dir / ".grok-keysmith.lock"
+    lock.write_bytes(b"holder\n")
+    fd = os.open(str(lock), os.O_RDWR)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        envelope = parse_envelope(run_cli(arguments, grok_dir, home=home))
+        assert envelope["ok"] is False
+        assert envelope["operation"] == operation
     finally:
         os.close(fd)
 
@@ -137,3 +177,83 @@ def test_abnormal_fifo_is_conflict(isolated_home):
         assert stat.S_ISFIFO(fifo.lstat().st_mode)
     finally:
         fifo.unlink()
+
+
+def test_apply_rebuilds_plan_inside_write_lock(isolated_home, monkeypatch):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    config = grok_dir / "config.toml"
+    config.write_text('model = "before"\n', encoding="utf-8")
+    module = load_cli_module()
+    args = module.build_argparser().parse_args(["--grok-dir", str(grok_dir), "--yes"])
+    paths = module.bind_grok_dir(str(grok_dir))
+    plan = module.build_deploy_plan(paths, args)
+    original_acquire = module.WriteLock.acquire
+
+    def acquire_then_race(lock):
+        result = original_acquire(lock)
+        config.write_text('model = "raced"\n', encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(module.WriteLock, "acquire", acquire_then_race)
+    try:
+        module.execute_deploy(paths, plan, args)
+    except module.KeysmithError as error:
+        assert "plan changed" in str(error)
+    else:
+        raise AssertionError("deploy unexpectedly applied a stale plan")
+    assert config.read_text(encoding="utf-8") == 'model = "raced"\n'
+    assert not (grok_dir / ".grok-keysmith-manifest.json").exists()
+    assert not (grok_dir / "rules" / "99-keysmith.md").exists()
+
+
+def test_bound_root_inode_rebind_is_rejected_before_apply(isolated_home):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    module = load_cli_module()
+    args = module.build_argparser().parse_args(["--grok-dir", str(grok_dir), "--yes"])
+    paths = module.bind_grok_dir(str(grok_dir))
+    plan = module.build_deploy_plan(paths, args)
+    old = home / "old-grok"
+    grok_dir.rename(old)
+    grok_dir.mkdir()
+    (grok_dir / "sentinel").write_text("keep\n", encoding="utf-8")
+
+    try:
+        module.execute_deploy(paths, plan, args)
+    except module.KeysmithError as error:
+        assert "identity" in str(error) or "rebound" in " ".join(error.diagnostics)
+    else:
+        raise AssertionError("deploy unexpectedly followed a rebound grok-dir")
+    assert (grok_dir / "sentinel").read_text(encoding="utf-8") == "keep\n"
+    assert not (grok_dir / ".grok-keysmith-manifest.json").exists()
+
+
+def test_atomic_write_does_not_follow_parent_rebind(isolated_home, monkeypatch):
+    if os.name == "nt":
+        return
+    home, grok_dir = isolated_home
+    rules = grok_dir / "rules"
+    rules.mkdir(parents=True)
+    outside = home / "outside-rules"
+    outside.mkdir()
+    moved = home / "moved-rules"
+    module = load_cli_module()
+    original_open = module.os.open
+    raced = {"done": False}
+
+    def open_after_rebind(path, flags, *args, **kwargs):
+        if not raced["done"] and str(path) == str(rules) and "dir_fd" not in kwargs:
+            raced["done"] = True
+            rules.rename(moved)
+            rules.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", open_after_rebind)
+    try:
+        module.atomic_write_bytes(rules / "99-keysmith.md", b"must-not-escape\n")
+    except (OSError, module.KeysmithError):
+        pass
+    else:
+        raise AssertionError("atomic write unexpectedly followed a rebound parent")
+    assert not (outside / "99-keysmith.md").exists()

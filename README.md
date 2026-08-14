@@ -30,6 +30,8 @@
 
 `grok-keysmith` 是零依赖的单文件 Python 脚本，把一份指令 Markdown 部署为 `~/.grok/rules/99-keysmith.md`，让每个新 Grok 会话自动加载。默认预览、显式确认才写入，可随时撤销。`v0.1.1` 是首个公开版本；`v0.3.0` 针对 Grok 4.6 的对齐层重构部署面与内置指令；更早的 private-only `0.1.0` 不在本仓库历史中，不要使用。
 
+当前 `main` 对应 CLI 开发版本 `0.4.0-dev` 与 Desktop `0.1.0-beta.1`，均不是已发布版本；正式安装仍使用下方固定的 `v0.3.0`。
+
 **这会改变 Grok 的全局行为，不是项目级设置**：部署写入 `~/.grok/rules/99-keysmith.md`（home rules，所有会话总是扫描），并在 `~/.grok/config.toml` 注入 compat 隔离块——关闭 Claude/Cursor 全部兼容层，单独关闭 Codex session import。**`~/.grok/AGENTS.md` 不再被本工具触碰**：人物卡、agent 档案或任何全局指令都可以继续放在那里，与 keysmith 的部署互不影响。内置示例指令以交付契约形式覆盖逆向工程与渗透测试工作流（本地样本/占位符框架），也会明显降低模型对敏感请求的拒绝率。**这不是安全边界，是一次影响很广的行为切换**——用前请打开 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) 看一眼，或用 `--file` 换成你自己的指令。
 
 内置指令覆盖到什么边界与模型版本相关，也会随模型更新变化；Grok 4.6 的对齐在模型权重层，指令契约提升的是已覆盖领域的配合度，不改变权重层硬拒绝的领域。本项目不在公开文档中给出针对性测试方法或具体绕过案例。

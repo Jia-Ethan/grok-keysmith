@@ -2,7 +2,9 @@
 """Cross-platform Grok prompt runner for grok-keysmith."""
 from __future__ import annotations
 
+import codecs
 import json
+import math
 import os
 import shutil
 import signal
@@ -19,6 +21,9 @@ DEFAULT_CONTRACT_NAME = "rules/99-keysmith.md"
 DEPRECATED_CONTRACT_ENV = "GROK_KEYSMIth_CONTRACT"
 CONTRACT_ENV = "GROK_KEYSMITH_CONTRACT"
 MAX_CONCURRENCY_NOTICE = 4
+STREAM_EVENT_PREFIX = "GROK_KEYSMITH_EVENT "
+STREAM_EVENT_SCHEMA = "grok-keysmith.stream.v1"
+_STREAM_EVENT_LOCK = threading.Lock()
 
 
 class RunnerError(Exception):
@@ -138,13 +143,43 @@ def _kill_tree(proc):
             pass
 
 
-def run_stream(command, timeout, max_output_bytes, cwd=None):
+def _cancel_requested(cancel_file=None):
+    value = cancel_file or os.environ.get("GROK_KEYSMITH_CANCEL_FILE")
+    return bool(value and Path(value).exists())
+
+
+def emit_stream_event(event_type, **payload):
+    if os.environ.get("GROK_KEYSMITH_STREAM_EVENTS") != "1":
+        return
+    event = {"schema": STREAM_EVENT_SCHEMA, "type": event_type}
+    event.update(payload)
+    line = STREAM_EVENT_PREFIX + json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
+    with _STREAM_EVENT_LOCK:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+
+
+def run_stream(command, timeout, max_output_bytes, cwd=None, event_context=None):
     start = time.time()
-    stdout_chunks = []
-    stderr_chunks = []
-    stdout_size = [0]
-    stderr_size = [0]
+    if max_output_bytes < 1:
+        raise RunnerError("max output bytes must be >= 1")
+    stdout_bytes = bytearray()
+    stderr_bytes = bytearray()
     truncated = {"stdout": False, "stderr": False}
+    context = dict(event_context or {})
+    cancel_file = os.environ.get("GROK_KEYSMITH_CANCEL_FILE")
+    if _cancel_requested(cancel_file):
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 130,
+            "timed_out": False,
+            "cancelled": True,
+            "truncated": truncated,
+            "captured_bytes": {"stdout": 0, "stderr": 0},
+            "seconds": time.time() - start,
+            "pid": None,
+        }
     popen_kwargs = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
@@ -153,65 +188,76 @@ def run_stream(command, timeout, max_output_bytes, cwd=None):
     if os.name == "nt":
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
-        popen_kwargs["preexec_fn"] = os.setsid
-    proc = subprocess.Popen(command, **popen_kwargs)
+        popen_kwargs["start_new_session"] = True
+    try:
+        proc = subprocess.Popen(command, **popen_kwargs)
+    except OSError as error:
+        raise RunnerError("unable to execute Grok binary: %s" % error)
 
-    def _reader(stream, bucket, counter, label):
+    def _reader(stream, bucket, label):
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        read_chunk = getattr(stream, "read1", stream.read)
         while True:
-            chunk = stream.read(4096)
+            chunk = read_chunk(4096)
             if not chunk:
                 break
-            if isinstance(chunk, bytes):
-                try:
-                    text = chunk.decode("utf-8")
-                except UnicodeDecodeError:
-                    text = chunk.decode("utf-8", "replace")
-                    if label == "stdout":
-                        bucket.append(text)
-                        counter[0] += len(text)
-                    else:
-                        bucket.append(text)
-                    continue
-            else:
-                text = chunk
-            if counter[0] >= max_output_bytes:
+            if not isinstance(chunk, bytes):
+                chunk = chunk.encode("utf-8", "replace")
+            remaining = max_output_bytes - len(bucket)
+            if remaining <= 0:
                 truncated[label] = True
                 continue
-            remain = max_output_bytes - counter[0]
-            if len(text) > remain:
-                bucket.append(text[:remain])
-                counter[0] += remain
+            captured = chunk[:remaining]
+            bucket.extend(captured)
+            if len(chunk) > remaining:
                 truncated[label] = True
-            else:
-                bucket.append(text)
-                counter[0] += len(text)
+            text = decoder.decode(captured, final=False)
+            if text:
+                emit_stream_event("output", channel=label, text=text, **context)
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            emit_stream_event("output", channel=label, text=tail, **context)
 
     threads = [
-        threading.Thread(target=_reader, args=(proc.stdout, stdout_chunks, stdout_size, "stdout")),
-        threading.Thread(target=_reader, args=(proc.stderr, stderr_chunks, stderr_size, "stderr")),
+        threading.Thread(target=_reader, args=(proc.stdout, stdout_bytes, "stdout")),
+        threading.Thread(target=_reader, args=(proc.stderr, stderr_bytes, "stderr")),
     ]
     for thread in threads:
         thread.daemon = True
         thread.start()
     timed_out = False
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_tree(proc)
+    cancelled = False
+    deadline = start + timeout
+    while proc.poll() is None:
+        if _cancel_requested(cancel_file):
+            cancelled = True
+            _kill_tree(proc)
+            break
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            timed_out = True
+            _kill_tree(proc)
+            break
+        try:
+            proc.wait(timeout=min(0.1, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+    if proc.poll() is None:
         try:
             proc.wait(timeout=5)
         except Exception:
             pass
     for thread in threads:
         thread.join(timeout=2)
-    exit_code = proc.returncode if proc.returncode is not None else -1
+    exit_code = 130 if cancelled else (proc.returncode if proc.returncode is not None else -1)
     return {
-        "stdout": "".join(stdout_chunks),
-        "stderr": "".join(stderr_chunks),
+        "stdout": bytes(stdout_bytes).decode("utf-8", "replace"),
+        "stderr": bytes(stderr_bytes).decode("utf-8", "replace"),
         "exit_code": exit_code,
         "timed_out": timed_out,
+        "cancelled": cancelled,
         "truncated": truncated,
+        "captured_bytes": {"stdout": len(stdout_bytes), "stderr": len(stderr_bytes)},
         "seconds": time.time() - start,
         "pid": proc.pid,
     }
@@ -244,11 +290,39 @@ def emit(operation, ok, target, plan, result, diagnostics, exit_code, as_json, h
     return exit_code
 
 
+def write_text_atomic(path, contents):
+    target = Path(path).expanduser()
+    parent = target.parent
+    if not parent.is_dir():
+        raise RunnerError("output directory not found: %s" % parent)
+    mode = (target.stat().st_mode & 0o777) if target.is_file() else 0o600
+    fd, temporary = tempfile.mkstemp(prefix=".%s." % target.name, suffix=".tmp", dir=str(parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, target)
+    finally:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+
+
 def runner_main(args):
     as_json = bool(getattr(args, "json", False))
     diagnostics = []
     tmp_prompt = None
     try:
+        timeout_value = getattr(args, "timeout", 180.0)
+        timeout = 180.0 if timeout_value is None else float(timeout_value)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise RunnerError("timeout must be > 0 and finite")
+        max_bytes = int(getattr(args, "max_output_bytes", 2 * 1024 * 1024))
+        if max_bytes < 1:
+            raise RunnerError("max output bytes must be >= 1")
         binary = which_grok(getattr(args, "grok_bin", None))
         version = grok_version(binary)
         grok_dir = getattr(args, "grok_dir", None)
@@ -288,18 +362,34 @@ def runner_main(args):
             getattr(args, "cwd", None),
             getattr(args, "output_format", "plain"),
         )
-        timeout = float(getattr(args, "timeout", 180.0) or 180.0)
-        max_bytes = int(getattr(args, "max_output_bytes", 2 * 1024 * 1024))
         result = run_stream(command, timeout, max_bytes, cwd=getattr(args, "cwd", None))
         result["grok_version"] = version
         result["command"] = command[:1] + [
             item if item != Path(contract).read_text(encoding="utf-8") else "<system-prompt-override>"
             for item in command[1:]
         ]
+        output_truncated = any(result["truncated"].values())
+        if output_truncated:
+            diagnostics.append("runner output exceeded --max-output-bytes; result is incomplete")
         if getattr(args, "save_output", None):
-            Path(args.save_output).write_text(result["stdout"], encoding="utf-8")
-            result["saved_output"] = str(Path(args.save_output))
-        ok = (not result["timed_out"]) and result["exit_code"] == 0
+            if output_truncated:
+                diagnostics.append("--save-output was skipped because captured output is incomplete")
+            else:
+                saved_output = Path(args.save_output).expanduser()
+                write_text_atomic(saved_output, result["stdout"])
+                result["saved_output"] = str(saved_output)
+        ok = (
+            (not result["timed_out"])
+            and (not result["cancelled"])
+            and (not output_truncated)
+            and result["exit_code"] == 0
+        )
+        if result["cancelled"]:
+            exit_code = 130
+        elif result["timed_out"]:
+            exit_code = 124
+        else:
+            exit_code = result["exit_code"] or (0 if ok else 1)
         return emit(
             "run",
             ok,
@@ -307,11 +397,13 @@ def runner_main(args):
             {"mode": getattr(args, "mode", "default"), "timeout": timeout},
             result,
             diagnostics,
-            0 if ok else (124 if result["timed_out"] else (result["exit_code"] or 1)),
+            exit_code,
             as_json,
             diagnostics,
         )
-    except RunnerError as error:
+    except Exception as error:
+        if not isinstance(error, RunnerError):
+            error = RunnerError("runner failed: %s" % error, exit_code=1)
         return emit(
             "run",
             False,

@@ -170,3 +170,71 @@ def test_status_conflict_on_rule_directory(isolated_home):
     status = parse_envelope(run_cli(["--status"], grok_dir, home=home))
     assert status["result"]["state"] == "conflict"
     assert status["exit_code"] != 0
+
+
+def test_active_hook_with_existing_disabled_peer_blocks_without_mutation(isolated_home):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    active = write_hook(grok_dir, "session.json", '{"active":true}\n')
+    disabled = write_hook(grok_dir, "session.json.disabled", '{"disabled":true}\n')
+    active_bytes = active.read_bytes()
+    disabled_bytes = disabled.read_bytes()
+
+    failed = parse_envelope(run_cli(["--yes"], grok_dir, home=home))
+    assert failed["ok"] is False
+    assert active.read_bytes() == active_bytes
+    assert disabled.read_bytes() == disabled_bytes
+    assert not (grok_dir / ".grok-keysmith-manifest.json").exists()
+
+
+def test_owned_disabled_hook_tamper_blocks_status_restore_and_uninstall(isolated_home):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    write_hook(grok_dir, "session.json", '{"owned":true}\n')
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    disabled = grok_dir / "hooks" / "session.json.disabled"
+    disabled.write_text('{"tampered":true}\n', encoding="utf-8")
+
+    status = parse_envelope(run_cli(["--status"], grok_dir, home=home))
+    assert status["result"]["state"] == "drift"
+    assert parse_envelope(run_cli(["--restore-hooks", "--yes"], grok_dir, home=home))[
+        "ok"
+    ] is False
+    assert parse_envelope(run_cli(["--uninstall", "--yes"], grok_dir, home=home))["ok"] is False
+    assert not (grok_dir / "hooks" / "session.json").exists()
+    assert disabled.read_text(encoding="utf-8") == '{"tampered":true}\n'
+
+
+def test_config_drift_status_uninstall_and_redeploy_agree(isolated_home):
+    home, grok_dir = isolated_home
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    config = grok_dir / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\nuser = true\n", encoding="utf-8")
+
+    status = parse_envelope(run_cli(["--status"], grok_dir, home=home))
+    assert status["result"]["state"] == "drift"
+    assert parse_envelope(run_cli(["--uninstall", "--yes"], grok_dir, home=home))["ok"] is False
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is False
+
+
+def test_schema2_manifest_paths_are_relative(isolated_home):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    write_hook(grok_dir, "session.json", '{"owned":true}\n')
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    manifest = json.loads((grok_dir / ".grok-keysmith-manifest.json").read_text(encoding="utf-8"))
+    layer = manifest["layer"]
+    paths = [layer["rule"]["path"], layer["config"]["path"]]
+    paths.extend(item["original"] for item in layer["hooks"]["owned"])
+    paths.extend(item["disabled"] for item in layer["hooks"]["owned"])
+    paths.extend(
+        value
+        for value in (
+            layer["rule"]["backup"],
+            layer["config"]["backup"],
+            layer["previous_manifest"]["backup"],
+        )
+        if value
+    )
+    assert paths
+    assert all(not value.startswith("/") and ".." not in value.split("/") for value in paths)

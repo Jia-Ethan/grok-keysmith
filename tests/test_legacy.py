@@ -92,6 +92,43 @@ def test_v03_manifest_without_schema_still_uninstalls(isolated_home):
     assert (grok_dir / "config.toml").read_text(encoding="utf-8") == original_config
 
 
+def test_legacy_manifest_restores_explicit_owned_hook(isolated_home):
+    home, grok_dir = isolated_home
+    grok_dir.mkdir()
+    rule_fp = _fp(grok_dir / "rules" / "99-keysmith.md", "v03-rule\n")
+    config_text = "%s\n[compat.claude]\nskills = false\n%s\n" % (
+        COMPAT_BEGIN,
+        COMPAT_END,
+    )
+    config_fp = _fp(grok_dir / "config.toml", config_text)
+    disabled = grok_dir / "hooks" / "session.json.disabled"
+    disabled.parent.mkdir()
+    disabled.write_text('{"legacy":true}\n', encoding="utf-8")
+    original = disabled.with_name("session.json")
+    manifest = {
+        "tool": "grok-keysmith",
+        "version": "0.3.0",
+        "deployment_id": "20260813-101501",
+        "deployed_at": "2026-08-13T10:15:01Z",
+        "prompt_source": "bundled",
+        "prompt_sha256": rule_fp["sha256"],
+        "prompt_name": "grok-unrestricted",
+        "agents_md": rule_fp,
+        "config_toml": config_fp,
+        "hooks": [{"original": str(original), "disabled": str(disabled)}],
+        "backups": {},
+        "previous_manifest_backup": None,
+    }
+    (grok_dir / ".grok-keysmith-manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+
+    uninstalled = parse_envelope(run_cli(["--uninstall", "--yes"], grok_dir, home=home))
+    assert uninstalled["ok"] is True
+    assert original.read_text(encoding="utf-8") == '{"legacy":true}\n'
+    assert not disabled.exists()
+
+
 def test_old_flag_names_still_work(isolated_home):
     home, grok_dir = isolated_home
     version = run_cli(["--version"], grok_dir, home=home, json_mode=False)

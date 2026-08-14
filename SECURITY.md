@@ -60,7 +60,7 @@ shasum -a 256 ~/.grok/rules/99-keysmith.md
 | --- | --- |
 | Latest published `0.3.x` GitHub Release | Supported; fixes target the latest patch version |
 | `0.1.x` GitHub Release | Uninstall compatibility only; no security backports |
-| `Unreleased` / `main` | Best-effort development state, not a stable Release |
+| `Unreleased` / `main` (`0.4.0-dev` currently) | Best-effort development state, not a stable Release |
 | Older releases and untagged snapshots | Unsupported |
 
 Windows runtime support is untested. Python 3.8+ is supported; Python 3.10+ is recommended.
