@@ -6,11 +6,12 @@
 
 | 版本 | 安全支持 |
 | --- | --- |
-| 最新已发布的 `0.1.x` GitHub Release | 支持;安全修复以最新补丁版本为准 |
+| 最新已发布的 `0.3.x` GitHub Release | 支持;安全修复以最新补丁版本为准 |
+| `0.1.x` GitHub Release | 仅卸载兼容支持;安全修复不回溯 |
 | `Unreleased` / `main` | Best effort 开发状态;不视为稳定 Release |
 | 更早版本与未标记快照 | 不支持 |
 
-v0.1.1 的 Windows 运行支持未测试。Python 3.8+ 可用;建议 Python 3.10+。
+Windows 运行支持未测试。Python 3.8+ 可用;建议 Python 3.10+。
 
 ## 私密报告漏洞
 
@@ -32,21 +33,21 @@ v0.1.1 的 Windows 运行支持未测试。Python 3.8+ 可用;建议 Python 3.10
 
 - **代码版本回滚**:从公开仓库检出并校验目标旧 Git tag 的脚本,再运行其 `--version`。如果已发布 GitHub Release,也必须校验对应资产。切换脚本版本不会自动改变 `~/.grok`。
 - **中断部署恢复**:status 检出 durable journal 后,先运行 `--recover` 预览,再用 `--recover --yes` 恢复该 transaction 的全部参与者。不要编辑 `journal.json` 或 `intent.json` 来强制继续。
-- **用户配置卸载**:使用当前受信任脚本运行 `--uninstall` 预览,再用 `--uninstall --yes` 撤销最新一层 manifest-owned AGENTS.md/config/hooks 状态。
-- **仅恢复 hooks**:使用 `--restore-hooks` 把 `.json.disabled` 恢复为 `.json`;它不卸载 AGENTS.md,也不修改 config.toml。
+- **用户配置卸载**:使用当前受信任脚本运行 `--uninstall` 预览,再用 `--uninstall --yes` 撤销最新一层 manifest-owned 指令文件/config/hooks 状态。卸载前会做指令文件内容所有权校验:只有当前 SHA-256 与 manifest 记录一致才删除,被后续替换的文件(如 AGENTS.md 上的其他内容)会保留。
+- **仅恢复 hooks**:使用 `--restore-hooks` 把 `.json.disabled` 恢复为 `.json`;它不卸载指令文件,也不修改 config.toml。
 - **所有权冲突**:如果 manifest、受管理节点或必要备份发生漂移,工具会 fail closed。不要为了继续而编辑 manifest 或覆盖冲突文件;先复制整个 `~/.grok` 目录并在私密报告中提供脱敏指纹与最小复现。
 
 journal、intent、manifest、cleanup evidence 是防止意外漂移和普通并发竞态的一致性证据,不是带密钥的密码学认证。同一账户若协同改写多份证据,超出工具可证明的互斥边界。
 
 ## prompt 完整性与 SHA-256 校验
 
-v0.1.1 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `cfee264f4f4683c6470595de90616744521e4f65ad81cc9a0a6f0061abaedc7b`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/AGENTS.md` 的内容应与源文件 byte-for-byte 一致。
+v0.3.0 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/rules/99-keysmith.md` 的内容应与源文件 byte-for-byte 一致。
 
 部署后应校验:
 
 ```bash
-shasum -a 256 ~/.grok/AGENTS.md
-# 应输出: cfee264f4f4683c6470595de90616744521e4f65ad81cc9a0a6f0061abaedc7b  /Users/you/.grok/AGENTS.md
+shasum -a 256 ~/.grok/rules/99-keysmith.md
+# 应输出: d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898  /Users/you/.grok/rules/99-keysmith.md
 ```
 
 如果校验失败,说明部署过程中内容被篡改或写入异常。不要使用校验失败的部署;先 `--uninstall --yes` 撤销,再重新部署。
@@ -57,11 +58,12 @@ shasum -a 256 ~/.grok/AGENTS.md
 
 | Version | Security support |
 | --- | --- |
-| Latest published `0.1.x` GitHub Release | Supported; fixes target the latest patch version |
+| Latest published `0.3.x` GitHub Release | Supported; fixes target the latest patch version |
+| `0.1.x` GitHub Release | Uninstall compatibility only; no security backports |
 | `Unreleased` / `main` | Best-effort development state, not a stable Release |
 | Older releases and untagged snapshots | Unsupported |
 
-Windows runtime support is untested in v0.1.1. Python 3.8+ is supported; Python 3.10+ is recommended.
+Windows runtime support is untested. Python 3.8+ is supported; Python 3.10+ is recommended.
 
 ## Private vulnerability reporting
 
@@ -83,21 +85,21 @@ Code rollback and user-configuration recovery are separate operations:
 
 - **Code-version rollback:** check out and verify the target older Git tag from the public repository, then check its `--version`. If a GitHub Release exists, verify its assets as well. Switching script versions does not automatically modify `~/.grok`.
 - **Interrupted-deployment recovery:** after status detects a durable journal, preview with `--recover`, then run `--recover --yes` to restore every participant in that transaction. Do not edit `journal.json` or `intent.json` to force progress.
-- **User-configuration uninstall:** preview with `--uninstall`, then run `--uninstall --yes` to undo the newest manifest-owned AGENTS.md/config/hooks layer.
-- **Hooks-only restore:** `--restore-hooks` restores `.json.disabled` as `.json`; it does not uninstall AGENTS.md or edit config.toml.
+- **User-configuration uninstall:** preview with `--uninstall`, then run `--uninstall --yes` to undo the newest manifest-owned instruction-file/config/hooks layer. Uninstall verifies instruction-file ownership first: the file is deleted only if its current SHA-256 matches the manifest record; files replaced later (e.g. other content at AGENTS.md) are preserved.
+- **Hooks-only restore:** `--restore-hooks` restores `.json.disabled` as `.json`; it does not uninstall the instruction file or edit config.toml.
 - **Ownership conflict:** manifest, managed-node, or required-backup drift fails closed. Do not edit the manifest or overwrite conflicting files to force progress. Copy the complete `~/.grok` directory first and include only redacted fingerprints and a minimal reproduction in the private report.
 
 Journal, intent, manifest, and cleanup-marker data is consistency evidence against accidental drift and ordinary races, not keyed cryptographic authentication. Coordinated same-user edits to multiple evidence files are outside the provable mutual-exclusion boundary.
 
 ## Prompt integrity and SHA-256 verification
 
-The v0.1.1 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `cfee264f4f4683c6470595de90616744521e4f65ad81cc9a0a6f0061abaedc7b`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/AGENTS.md` should match the source file byte-for-byte.
+The v0.3.0 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/rules/99-keysmith.md` should match the source file byte-for-byte.
 
 Verify after deployment:
 
 ```bash
-shasum -a 256 ~/.grok/AGENTS.md
-# should output: cfee264f4f4683c6470595de90616744521e4f65ad81cc9a0a6f0061abaedc7b  /Users/you/.grok/AGENTS.md
+shasum -a 256 ~/.grok/rules/99-keysmith.md
+# should output: d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898  /Users/you/.grok/rules/99-keysmith.md
 ```
 
 If verification fails, the content was tampered with or written abnormally. Do not use a failed deployment; run `--uninstall --yes` first, then redeploy.

@@ -21,3 +21,4 @@ htmlcov/
 *.keysmith-archive-*
 *.keysmith-conflict-*
 .grok-keysmith-transaction-*
+docs/legacy/

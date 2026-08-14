@@ -20,19 +20,19 @@
 
 ### What this is
 
-`grok-keysmith` is a zero-dependency, single-file Python script that deploys an instruction Markdown file as `~/.grok/AGENTS.md`, auto-loaded by every new Grok session. It previews by default and only writes on explicit confirmation; every deployment can be undone. `v0.1.1` is the first public release; the earlier private-only `0.1.0` is not part of this repository's history and must not be used.
+`grok-keysmith` is a zero-dependency, single-file Python script that deploys an instruction Markdown file as `~/.grok/rules/99-keysmith.md`, auto-loaded by every new Grok session. It previews by default and only writes on explicit confirmation; every deployment can be undone. `v0.1.1` is the first public release; `v0.3.0` reworks the deployment surface and the bundled instruction for the Grok 4.6 alignment layer; the earlier private-only `0.1.0` is not part of this repository's history and must not be used.
 
-**This changes Grok's global behavior, not a per-project setting**: deployment writes `~/.grok/AGENTS.md` (global rules auto-discovered by all sessions) and injects a compat isolation block into `~/.grok/config.toml` — disabling every Claude/Cursor compatibility surface and separately disabling Codex session import. The bundled example prompt directs the model to drop refusal framing and treats reverse-shell/bypass-style requests as local fixtures or literary templates, and covers adult content. **This is a broad behavior change, not a safety boundary** — read [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) before using it, or supply your own file with `--file`.
+**This changes Grok's global behavior, not a per-project setting**: deployment writes `~/.grok/rules/99-keysmith.md` (home rules, always scanned by every session) and injects a compat isolation block into `~/.grok/config.toml` — disabling every Claude/Cursor compatibility surface and separately disabling Codex session import. **`~/.grok/AGENTS.md` is no longer touched by this tool**: a persona card, agent profile, or any global instruction can keep living there, fully decoupled from the keysmith deployment. The bundled instruction is a delivery contract covering reverse engineering and penetration testing workflows (local-fixture/placeholder framing) and measurably reduces refusal framing for sensitive requests. **This is a broad behavior change, not a safety boundary** — read [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) before using it, or supply your own file with `--file`.
 
-The bundled instruction does measurably reduce the model's refusal rate for sensitive requests; the exact boundary is model-version-dependent and shifts with model updates. This project does not publish a targeted testing methodology or specific bypass cases in its public documentation.
+The covered boundary is model-version-dependent and shifts with model updates; Grok 4.6 alignment lives at the model-weight level, so the contract raises compliance on covered domains but does not change weight-level hard refusals outside those scopes. This project does not publish a targeted testing methodology or specific bypass cases in its public documentation.
 
 ### Quick start (macOS / Linux)
 
 ```bash
-git clone --branch v0.1.1 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
+git clone --branch v0.3.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
 cd grok-keysmith
-test "$(git describe --tags --exact-match)" = "v0.1.1"
-test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "cfee264f4f4683c6470595de90616744521e4f65ad81cc9a0a6f0061abaedc7b"
+test "$(git describe --tags --exact-match)" = "v0.3.0"
+test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
 python3 grok-keysmith.py --version
 python3 grok-keysmith.py --status
@@ -49,16 +49,18 @@ cd ~
 grok inspect --json | python3 -c "import sys,json; d=json.load(sys.stdin); [print('instruction',p['path'],'scope='+p['scope'],'status='+p.get('compatibilityStatus','enabled')) for p in d['projectInstructions']]; [print('compat',c['vendor'],c['surface'],'ON' if c['enabled'] else 'OFF','source='+c['source']) for c in d['externalCompat']['cells']]"
 ```
 
-Should show `~/.grok/AGENTS.md` as `scope=global enabled`; every Claude/Cursor compatibility surface as `OFF`; and Codex `sessions` as `OFF`.
+Should show `~/.grok/rules/99-keysmith.md` as enabled; every Claude/Cursor compatibility surface as `OFF`; and Codex `sessions` as `OFF`. `~/.grok/AGENTS.md` is not affected.
 
 ### Files it changes
 
 | Path | What happens |
 | --- | --- |
-| `~/.grok/AGENTS.md` | Create, or back up and replace |
+| `~/.grok/rules/99-keysmith.md` | Create, or back up and replace |
 | `~/.grok/config.toml` | Marked `[compat.*]` isolation block injected (backed up first) |
 | `~/.grok/hooks/*.json` | Isolated to `.json.disabled` (backed up first) |
 | `~/.grok/.grok-keysmith-manifest.json` | Records what this deployment changed, for later uninstall |
+
+`~/.grok/AGENTS.md` is not touched: persona cards and agent profiles stay fully decoupled from the keysmith deployment. During uninstall, a file whose content no longer matches the deployment record (e.g. AGENTS.md later replaced by a persona card) is preserved.
 
 Full field list and edge cases: [`docs/reference.md`](docs/reference.md).
 
@@ -82,9 +84,10 @@ python3 grok-keysmith.py --uninstall --yes    # confirm
 
 ### Compatibility and limits
 
-- Python 3.8+; verified with Grok Build CLI `0.2.103`, default model `grok-4.5`.
-- macOS / Linux are the primary support range; Windows is untested in v0.1.1.
-- `~/.grok/AGENTS.md` is global with no per-project isolation; hooks are isolated as a whole-directory rename.
+- Python 3.8+; bundled instruction rewritten for Grok Build model `grok-4.6`.
+- macOS / Linux are the primary support range; Windows is untested.
+- `~/.grok/rules/` is global home rules with no per-project isolation; hooks are isolated as a whole-directory rename.
+- v0.1.x deployments (written to `~/.grok/AGENTS.md`) remain uninstallable by v0.3.0; uninstall verifies content ownership first.
 - Full limits list, compat isolation details, and maintainer verification: [`docs/reference.md`](docs/reference.md).
 
 ### Community
@@ -96,7 +99,7 @@ Same series:
 - [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) - Versioned instruction deployment for local Codex CLI configuration with preview, hook isolation, interruption recovery, and layered uninstall.
 - [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) - Managed Claude Code `CLAUDE.md` import-block installer for local Markdown instruction files.
 - [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) - Managed true system-role entrypoint for ZCode App.
-- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) - Global `AGENTS.md` instruction deployment for Grok Build with compat/hook isolation, interruption recovery, and layered uninstall.
+- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) - Home-rules instruction deployment for Grok Build (`~/.grok/rules/99-keysmith.md`), decoupled from AGENTS.md persona cards, with compat/hook isolation, interruption recovery, and layered uninstall.
 
 ---
 

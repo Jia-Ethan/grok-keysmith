@@ -19,12 +19,12 @@ python3 grok-keysmith.py --status
 ```text
 [status] Grok 配置目录: /Users/you/.grok
 
-  AGENTS.md: 已部署 (16804 bytes, sha256=cfee264f4f46...)
+  rules/99-keysmith.md: 已部署 (5787 bytes, sha256=b5be2fe24e90...)
   config.toml: 存在 (664 bytes)
   compat 隔离块: 已注入
   active hooks: 0 个
   disabled hooks: 0 个
-  部署清单: 存在 (deployment_id=20260719-121748)
+  部署清单: 存在 (deployment_id=20260813-101500)
   中断事务日志: 0 个
 
   可部署性: 就绪
@@ -34,10 +34,10 @@ python3 grok-keysmith.py --status
 
 | 路径 | 确认部署行为 |
 | --- | --- |
-| `~/.grok/AGENTS.md` | 新建；已有普通文件时先创建时间戳备份再替换 |
+| `~/.grok/rules/99-keysmith.md` | 新建；已有普通文件时先创建时间戳备份再替换。`~/.grok/AGENTS.md` 不被触碰，人物卡/agent 档案与部署解耦 |
 | `~/.grok/config.toml` | 备份后注入带 begin/end marker 的 `[compat.*]` 隔离块；已有块先移除再重注入 |
 | `~/.grok/hooks/*.json` | 每个 active hook 改名为 `.json.disabled`；已有 `.disabled` 先归档 |
-| `~/.grok/.grok-keysmith-manifest.json` | 记录 AGENTS.md/config 指纹、隔离的 hooks、备份路径、上一层 manifest |
+| `~/.grok/.grok-keysmith-manifest.json` | 记录指令文件/config 指纹、隔离的 hooks、备份路径、上一层 manifest |
 | `~/.grok/.grok-keysmith-transaction-<id>/` | 保存 immutable `intent.json` (0444) 和 phased `journal.json` |
 | `~/.grok/config.toml.keysmith-backup-*` | 时间戳备份，不自动删除 |
 | `~/.grok/.grok-keysmith-manifest.json.uninstalled-*` | 卸载时归档的 manifest，不自动删除 |
@@ -49,7 +49,7 @@ python3 grok-keysmith.py --uninstall          # 预览
 python3 grok-keysmith.py --uninstall --yes    # 执行
 ```
 
-卸载会：删除 `~/.grok/AGENTS.md`；从 `config.toml` 精确移除 compat 隔离块（按 begin/end marker）；把 `.json.disabled` hooks 恢复为 `.json`；把 manifest 归档为 `.uninstalled-<timestamp>`。
+卸载会：删除部署的指令文件（v0.2.x 为 `~/.grok/rules/99-keysmith.md`，v0.1.x 为 manifest 记录的路径）；从 `config.toml` 精确移除 compat 隔离块（按 begin/end marker）；把 `.json.disabled` hooks 恢复为 `.json`；把 manifest 归档为 `.uninstalled-<timestamp>`。删除前做内容所有权校验：当前文件 SHA-256 与 manifest 记录不一致时保留文件（防止误删后来替换的内容，如人物卡）。
 
 ### 中断恢复
 
@@ -59,7 +59,7 @@ python3 grok-keysmith.py --uninstall --yes    # 执行
 python3 grok-keysmith.py --recover --yes
 ```
 
-恢复会按 journal 记录的 phase 回滚已执行的步骤（删除已写的 AGENTS.md、移除 config compat 块、恢复已隔离的 hooks），标记 recovered，清理 journal 目录。
+恢复会按 journal 记录的 phase 回滚已执行的步骤（删除本事务写入的指令文件、移除 config compat 块、恢复已隔离的 hooks），标记 recovered，清理 journal 目录。指令文件删除同样经过 SHA-256 所有权校验。
 
 ### 仅恢复 hooks
 
@@ -67,7 +67,7 @@ python3 grok-keysmith.py --recover --yes
 python3 grok-keysmith.py --restore-hooks --yes
 ```
 
-把 `.json.disabled` 恢复为 `.json`，不影响 AGENTS.md 和 config.toml。
+把 `.json.disabled` 恢复为 `.json`，不影响指令文件和 config.toml。
 
 ### 自定义提示词
 
@@ -135,7 +135,7 @@ grok-keysmith/
 ### 已知限制
 
 - 更早的 private-only `0.1.0` snapshot 不属于本公开仓库历史；其 MIT 授权条款存在转录错误，且不包含 compat section 修正。
-- `~/.grok/AGENTS.md` 是全局的，没有项目级隔离。
+- `~/.grok/rules/` 是全局 home rules，没有项目级隔离。
 - compat 隔离块在部署时会先剥离 `config.toml` 中所有已存在的 `[compat.claude]` / `[compat.cursor]` / `[compat.codex]` 段（无论来源），再注入 keysmith 自己的 marker 块，使其成为这些表的唯一来源。这是因为 TOML 不允许同名表出现两次（重复会直接解析失败），而非 last-wins 覆盖。被剥离的原文件完整保存在时间戳备份中（`config.toml.keysmith-backup-*`），卸载只移除 keysmith 的 marker 块，不会恢复被剥离的外部 compat 段——需要时从备份手动恢复。
 - hooks 是整目录改名隔离，不能选择性保留个别 hook。
 - 内置指令不能保证在不同 Grok CLI 或模型版本下行为一致。
@@ -154,10 +154,10 @@ python3 grok-keysmith.py --status
 
 | Path | Deploy behavior |
 | --- | --- |
-| `~/.grok/AGENTS.md` | Created; existing file backed up with timestamp before replacement |
+| `~/.grok/rules/99-keysmith.md` | Created; existing file backed up with timestamp before replacement. `~/.grok/AGENTS.md` is not touched; persona cards and agent profiles stay decoupled |
 | `~/.grok/config.toml` | Backed up, then compat isolation block injected with begin/end markers; existing block removed and re-injected |
 | `~/.grok/hooks/*.json` | Each active hook renamed to `.json.disabled`; existing `.disabled` archived first |
-| `~/.grok/.grok-keysmith-manifest.json` | Records AGENTS.md/config fingerprints, isolated hooks, backup paths, previous manifest |
+| `~/.grok/.grok-keysmith-manifest.json` | Records instruction-file/config fingerprints, isolated hooks, backup paths, previous manifest |
 | `~/.grok/.grok-keysmith-transaction-<id>/` | Holds immutable `intent.json` (0444) and phased `journal.json` |
 | `~/.grok/config.toml.keysmith-backup-*` | Timestamped backups, not auto-deleted |
 | `~/.grok/.grok-keysmith-manifest.json.uninstalled-*` | Archived manifest on uninstall, not auto-deleted |
@@ -169,7 +169,7 @@ python3 grok-keysmith.py --uninstall          # preview
 python3 grok-keysmith.py --uninstall --yes    # execute
 ```
 
-Removes `AGENTS.md`, strips the compat isolation block from `config.toml` (by begin/end markers), restores `.json.disabled` hooks, and archives the manifest.
+Removes the deployed instruction file (`~/.grok/rules/99-keysmith.md` for v0.2.x, or the manifest-recorded path for v0.1.x), strips the compat isolation block from `config.toml` (by begin/end markers), restores `.json.disabled` hooks, and archives the manifest. Deletion is ownership-checked: a file whose current SHA-256 no longer matches the manifest record is preserved.
 
 ### Recovery
 
@@ -185,7 +185,7 @@ If a deployment was interrupted by SIGKILL, `--status` detects journals not in c
 python3 grok-keysmith.py --restore-hooks --yes
 ```
 
-Restores `.json.disabled` to `.json` without affecting AGENTS.md or config.toml.
+Restores `.json.disabled` to `.json` without affecting the instruction file or config.toml.
 
 ### Custom prompt
 
@@ -216,7 +216,7 @@ grok-keysmith/
 ### Known limitations
 
 - The earlier private-only `0.1.0` snapshot is not part of this public repository history; it contains a transcription error in the MIT grant clause and predates the compat-section fix.
-- `~/.grok/AGENTS.md` is global; no per-project isolation.
+- `~/.grok/rules/` is global home rules; no per-project isolation.
 - At deploy time the compat isolation block first strips every pre-existing `[compat.claude]` / `[compat.cursor]` / `[compat.codex]` section from `config.toml` (regardless of source) before injecting keysmith's own marked block, making that block the sole source for these tables. This is because TOML forbids duplicate table headers (a duplicate is a parse error, not a last-wins override). Stripped original content is preserved in full in the timestamped backup (`config.toml.keysmith-backup-*`); uninstall removes only keysmith's marked block and does not restore externally-owned compat sections — recover them from the backup if needed.
 - Hooks are isolated as a complete directory rename; individual hooks cannot be selectively retained.
 - The bundled instruction cannot guarantee identical model behavior across Grok CLI or model versions.
