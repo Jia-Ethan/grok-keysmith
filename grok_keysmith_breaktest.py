@@ -544,6 +544,18 @@ def breaktest_main(args):
         model = getattr(args, "model", None)
         effort = getattr(args, "reasoning_effort", None)
         cwd = getattr(args, "cwd", None)
+        if "override" in modes:
+            # Fail before creating run artifacts when a Windows batch shim cannot carry the contract.
+            build_command(
+                binary,
+                "override",
+                contract,
+                "prompt.txt",
+                model,
+                effort,
+                cwd,
+                "plain",
+            )
         identity = build_identity(
             bank,
             modes,

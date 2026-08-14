@@ -16,7 +16,7 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - Manifest `schema_version` 2 with before/after fingerprints, previous layer, and hook ownership.
 - Prompt runner (`run`) with `default` / `override`, `--prompt-file`, streaming, timeout, and process-tree cancel.
 - Productized `breaktest` harness with isolated run directories and a heuristic classifier.
-- Desktop GUI 0.1.0-beta.1 (ad-hoc-signed macOS Apple Silicon and unsigned Windows x64 candidates).
+- Desktop GUI 0.1.0-beta.1 candidate workflows for ad-hoc-signed macOS Apple Silicon and unsigned Windows x64 bundles.
 
 ### Changed
 
@@ -31,6 +31,7 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 
 - `GROK_KEYSMIth_CONTRACT` is only a deprecated alias of `GROK_KEYSMITH_CONTRACT`.
 - Historical breaktest scripts no longer hardcode a user home path.
+- Windows checks use canonical paths and LF prompt bytes; native `grok.exe` is preferred and `.cmd` / `.bat` override launches fail with an actionable diagnostic.
 
 ## [0.3.0] - 2026-08-14
 

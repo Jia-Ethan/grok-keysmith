@@ -87,7 +87,7 @@ python3 grok-keysmith.py --uninstall --yes    # confirm
 ### Compatibility and limits
 
 - Python 3.8+; bundled instruction rewritten for Grok Build model `grok-4.6`.
-- macOS / Linux are the primary support range; Windows is untested.
+- The CLI CI matrix covers macOS, Linux, and Windows; desktop beta candidates target macOS Apple Silicon and Windows x64. On Windows, `override` / `ab` mode requires native `grok.exe` because `.cmd` / `.bat` shims cannot carry the full contract.
 - `~/.grok/rules/` is global home rules with no per-project isolation; hooks are isolated as a whole-directory rename.
 - v0.1.x deployments (written to `~/.grok/AGENTS.md`) remain uninstallable by v0.3.0; uninstall verifies content ownership first.
 - Full limits list, compat isolation details, and maintainer verification: [`docs/reference.md`](docs/reference.md).

@@ -86,7 +86,7 @@ python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/pro
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
 ```
 
-`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。
+`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
 
 ### Breaktest
 
@@ -231,7 +231,7 @@ python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/pro
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
 ```
 
-`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run.
+`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
 
 ### Breaktest
 

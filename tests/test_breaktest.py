@@ -102,6 +102,11 @@ def test_breaktest_ab_writes_run_artifacts(isolated_home):
             home=home,
         )
     )
+    if os.name == "nt":
+        assert completed["ok"] is False
+        assert any("native grok.exe" in item for item in completed["diagnostics"])
+        assert not out.exists()
+        return
     assert completed["ok"] is True
     assert (out / "run-manifest.json").is_file()
     assert (out / "results.ndjson").is_file()
@@ -119,6 +124,10 @@ def test_breaktest_ab_writes_run_artifacts(isolated_home):
     ]
     assert all(row["heuristic"] is True for row in rows)
     assert all(row["review_status"] == "unreviewed" for row in rows)
+    assert all(
+        ("override=yes" in row["stdout"]) == (row["mode"] == "override")
+        for row in rows
+    )
 
 
 def test_breaktest_timeout_nonzero_refuse_and_resume(isolated_home):

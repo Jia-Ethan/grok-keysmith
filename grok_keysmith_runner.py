@@ -63,10 +63,20 @@ def which_grok(explicit):
         home = Path.home() / ".grok" / "bin" / "grok.exe"
     if home.is_file():
         return str(home)
-    found = shutil.which("grok") or shutil.which("grok.exe")
+    found = find_grok_on_path()
     if found:
         return found
     raise RunnerError("Grok binary not found")
+
+
+def find_grok_on_path(platform_name=None):
+    platform_name = os.name if platform_name is None else platform_name
+    names = ("grok.exe", "grok") if platform_name == "nt" else ("grok",)
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
 
 
 def resolve_contract(explicit, grok_dir=None):
@@ -110,6 +120,19 @@ def grok_version(binary):
     return text.splitlines()[0] if text else "unknown"
 
 
+def validate_command(command, platform_name=None):
+    platform_name = os.name if platform_name is None else platform_name
+    if platform_name != "nt" or "--system-prompt-override" not in command:
+        return
+    suffix = Path(str(command[0])).suffix.lower()
+    if suffix not in (".bat", ".cmd"):
+        return
+    raise RunnerError(
+        "Windows override mode requires native grok.exe; .cmd/.bat launchers "
+        "can truncate or reinterpret contract content"
+    )
+
+
 def build_command(binary, mode, contract, prompt_file, model, effort, cwd, output_format):
     command = [binary, "--prompt-file", prompt_file, "--output-format", output_format or "plain", "--no-alt-screen"]
     if cwd:
@@ -120,6 +143,7 @@ def build_command(binary, mode, contract, prompt_file, model, effort, cwd, outpu
         command.extend(["--reasoning-effort", effort])
     if mode == "override":
         command.extend(["--system-prompt-override", Path(contract).read_text(encoding="utf-8")])
+    validate_command(command)
     return command
 
 

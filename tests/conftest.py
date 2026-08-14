@@ -73,7 +73,7 @@ def snapshot_tree(root):
     if not root.exists():
         return entries
     for path in sorted(root.rglob("*")):
-        rel = str(path.relative_to(root))
+        rel = path.relative_to(root).as_posix()
         if path.is_symlink():
             entries[rel] = ("symlink", os.readlink(str(path)))
         elif path.is_dir():

@@ -95,7 +95,7 @@ python3 grok-keysmith.py --uninstall --yes    # 确认卸载
 ### 兼容性与限制
 
 - Python 3.8+；内置指令针对 Grok Build 模型 `grok-4.6` 重写。
-- macOS / Linux 是主要支持范围；Windows 未测试。
+- CLI CI 矩阵覆盖 macOS、Linux、Windows；桌面端 beta 候选构建目标为 macOS Apple Silicon 与 Windows x64。Windows 的 `override` / `ab` 模式必须使用原生 `grok.exe`，不能通过 `.cmd` / `.bat` shim 传递完整 contract。
 - `~/.grok/rules/` 是全局 home rules，没有项目级隔离；hooks 是整目录改名隔离，不能选择性保留个别 hook。
 - v0.1.x 部署（写入 `~/.grok/AGENTS.md`）仍可被 v0.3.0 卸载，卸载前会做内容所有权校验。
 - 完整限制清单、compat 隔离细节、维护者验证步骤见 [`docs/reference.md`](docs/reference.md)。

@@ -1,0 +1,2 @@
+# The embedded prompt hash is defined over canonical LF bytes.
+examples/grok-unrestricted.md text eol=lf

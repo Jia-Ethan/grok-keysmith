@@ -6,11 +6,21 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
-from grok_keysmith_runner import STREAM_EVENT_PREFIX, run_stream
+import pytest
+
+from grok_keysmith_runner import (
+    STREAM_EVENT_PREFIX,
+    RunnerError,
+    build_command,
+    find_grok_on_path,
+    run_stream,
+    validate_command,
+)
 from tests.conftest import CLI, FAKE_GROK, cli_env, parse_envelope, run_cli
 
 
@@ -41,6 +51,7 @@ def test_runner_default_and_override(isolated_home):
     )
     assert default["ok"] is True
     assert "override=no" in default["result"]["stdout"]
+    before = set(Path(tempfile.gettempdir()).glob("grok-keysmith-prompt-*"))
     override = parse_envelope(
         run_cli(
             [
@@ -58,8 +69,79 @@ def test_runner_default_and_override(isolated_home):
             home=home,
         )
     )
-    assert override["ok"] is True
-    assert "override=yes" in override["result"]["stdout"]
+    if os.name == "nt":
+        assert override["ok"] is False
+        assert any("native grok.exe" in item for item in override["diagnostics"])
+        assert set(Path(tempfile.gettempdir()).glob("grok-keysmith-prompt-*")) == before
+    else:
+        assert override["ok"] is True
+        assert "override=yes" in override["result"]["stdout"]
+
+
+def test_build_command_preserves_full_override_contract(tmp_path):
+    contract = tmp_path / "contract.md"
+    contract.write_text("header\n%s\n" % ("x" * 9000), encoding="utf-8")
+    command = build_command(
+        "grok",
+        "override",
+        str(contract),
+        "prompt.txt",
+        None,
+        None,
+        None,
+        "plain",
+    )
+    index = command.index("--system-prompt-override")
+    assert command[index + 1] == contract.read_text(encoding="utf-8")
+
+
+def test_windows_batch_override_requires_native_executable(tmp_path):
+    contract = tmp_path / "contract.md"
+    contract.write_text("literal %PATH% & echo unchanged\n", encoding="utf-8")
+    command = build_command(
+        "grok.exe",
+        "override",
+        str(contract),
+        "prompt.txt",
+        None,
+        None,
+        None,
+        "plain",
+    )
+    command[0] = "grok.cmd"
+    with pytest.raises(RunnerError, match="native grok.exe"):
+        validate_command(command, platform_name="nt")
+
+
+def test_windows_batch_default_mode_remains_supported():
+    validate_command(
+        ["grok.cmd", "--prompt-file", "prompt.txt", "--output-format", "plain"],
+        platform_name="nt",
+    )
+
+
+def test_windows_path_prefers_native_executable(monkeypatch):
+    calls = []
+
+    def fake_which(name):
+        calls.append(name)
+        return "C:/Grok/grok.exe" if name == "grok.exe" else "C:/Grok/grok.cmd"
+
+    monkeypatch.setattr("grok_keysmith_runner.shutil.which", fake_which)
+    assert find_grok_on_path(platform_name="nt") == "C:/Grok/grok.exe"
+    assert calls == ["grok.exe"]
+
+
+def test_windows_path_falls_back_to_batch_launcher(monkeypatch):
+    calls = []
+
+    def fake_which(name):
+        calls.append(name)
+        return None if name == "grok.exe" else "C:/Grok/grok.cmd"
+
+    monkeypatch.setattr("grok_keysmith_runner.shutil.which", fake_which)
+    assert find_grok_on_path(platform_name="nt") == "C:/Grok/grok.cmd"
+    assert calls == ["grok.exe", "grok"]
 
 
 def test_runner_timeout_and_nonzero(isolated_home):
@@ -156,7 +238,12 @@ def test_deprecated_contract_env_alias(isolated_home):
         )
     )
     assert completed["ok"] is True
-    assert any("deprecated" in item for item in completed["diagnostics"])
+    assert Path(completed["target"]["contract"]) == renamed.resolve()
+    # Windows environment names are case-insensitive, so this alias is canonical there.
+    if os.name == "nt":
+        assert not any("deprecated" in item for item in completed["diagnostics"])
+    else:
+        assert any("deprecated" in item for item in completed["diagnostics"])
 
 
 def test_run_stream_caps_invalid_utf8_by_raw_bytes():
@@ -231,7 +318,7 @@ def test_run_stream_emits_prefixed_output_events_before_exit(monkeypatch):
     thread.join(timeout=4)
     assert not thread.is_alive()
     result = result_holder["result"]
-    assert result["stdout"] == "live-output\n"
+    assert result["stdout"] == "live-output" + os.linesep
     lines = [line for line in sink.getvalue().splitlines() if line]
     assert lines and all(line.startswith(STREAM_EVENT_PREFIX) for line in lines)
     payloads = [json.loads(line[len(STREAM_EVENT_PREFIX):]) for line in lines]

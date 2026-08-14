@@ -4,8 +4,10 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - ".gitattributes"
       - ".github/workflows/desktop-candidate.yml"
       - "VERSION"
+      - "examples/grok-unrestricted.md"
       - "grok-keysmith.py"
       - "grok_keysmith_runner.py"
       - "grok_keysmith_breaktest.py"
@@ -87,7 +89,7 @@ jobs:
             npm run audit:gui
           fi
           python -m pip install "pytest==8.4.2"
-          python -m pytest -p no:cacheprovider -q ../tests
+          (cd .. && python -m pytest -p no:cacheprovider -q tests)
           mkdir -p src-tauri/binaries
           if [ "${{ runner.os }}" = "Windows" ]; then
             printf '%s\n' '@echo grok-keysmith 0.4.0-dev' > src-tauri/binaries/grok-keysmith-cli-x86_64-pc-windows-msvc.exe
@@ -111,8 +113,157 @@ jobs:
           python -m pip install "PyInstaller==${PYINSTALLER_VERSION}"
           npm run build:sidecar -- --target ${{ matrix.target }}
           npx tauri build
-        env:
-          HOME: ${{ runner.temp }}/isolated-home
+
+      - name: Validate macOS candidate
+        if: matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(gui/src-tauri/target/release/bundle/macos/*.app)
+          dmgs=(gui/src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ "${#apps[@]}" -ne 1 ] || [ "${#dmgs[@]}" -ne 1 ]; then
+            echo "Expected exactly one macOS app and DMG candidate." >&2
+            exit 1
+          fi
+          app="${apps[0]}"
+          gui_bin="$app/Contents/MacOS/grok-keysmith-gui"
+          sidecar="$app/Contents/MacOS/grok-keysmith-cli"
+          test -x "$gui_bin"
+          test -x "$sidecar"
+          file "$gui_bin" | grep -F "arm64"
+          file "$sidecar" | grep -F "arm64"
+          "$sidecar" --version | grep -F "$(cat VERSION)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | grep -F "Signature=adhoc"
+
+      - name: Validate Windows candidate
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundles = @(
+            Get-ChildItem -LiteralPath "gui/src-tauri/target/release/bundle/nsis" `
+              -Filter "*.exe" -File
+          )
+          if ($bundles.Count -ne 1) { throw "Expected exactly one NSIS candidate." }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "grok-keysmith-candidate-install"
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "grok-keysmith-sidecar-smoke"
+          $installed = $false
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+          function Assert-X64Executable([string]$Path) {
+            $stream = [System.IO.File]::OpenRead($Path)
+            $reader = [System.IO.BinaryReader]::new($stream)
+            try {
+              $stream.Position = 0x3c
+              $peOffset = $reader.ReadInt32()
+              $stream.Position = $peOffset + 4
+              $machine = $reader.ReadUInt16()
+              if ($machine -ne 0x8664) {
+                throw "Expected x64 PE executable: $Path"
+              }
+            }
+            finally {
+              $reader.Dispose()
+              $stream.Dispose()
+            }
+          }
+
+          try {
+            $installer = Start-Process -FilePath $bundles[0].FullName `
+              -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+            if ($installer.ExitCode -ne 0) {
+              throw "NSIS candidate installation failed with exit code $($installer.ExitCode)."
+            }
+            $installed = $true
+
+            $apps = @(
+              Get-ChildItem -LiteralPath $installDir -Recurse `
+                -Filter "grok-keysmith*.exe" -File |
+                Where-Object {
+                  $_.Name -ne "grok-keysmith-cli.exe" -and
+                  $_.Name -notlike "uninstall*"
+                }
+            )
+            $sidecars = @(
+              Get-ChildItem -LiteralPath $installDir -Recurse `
+                -Filter "grok-keysmith-cli.exe" -File
+            )
+            if ($apps.Count -ne 1 -or $sidecars.Count -ne 1) {
+              throw "Installed NSIS payload must contain one GUI and one sidecar executable."
+            }
+            Assert-X64Executable $apps[0].FullName
+            Assert-X64Executable $sidecars[0].FullName
+
+            $versionOutput = & $sidecars[0].FullName --version 2>&1
+            if ($LASTEXITCODE -ne 0 -or "$versionOutput" -notmatch [regex]::Escape((Get-Content VERSION -Raw).Trim())) {
+              throw "Installed sidecar version smoke failed: $versionOutput"
+            }
+
+            $grokDir = Join-Path $smokeRoot ".grok"
+            New-Item -ItemType Directory -Force -Path $grokDir | Out-Null
+            $before = @(
+              Get-ChildItem -LiteralPath $smokeRoot -Recurse -Force |
+                ForEach-Object { $_.FullName }
+            )
+            $statusOutput = & $sidecars[0].FullName `
+              --json --lang en --grok-dir $grokDir --status 2>&1
+            $status = ($statusOutput -join [Environment]::NewLine) | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $status.ok) {
+              throw "Installed sidecar status smoke failed: $statusOutput"
+            }
+            $dryRunOutput = & $sidecars[0].FullName `
+              --json --lang en --grok-dir $grokDir --dry-run 2>&1
+            $dryRun = ($dryRunOutput -join [Environment]::NewLine) | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $dryRun.ok) {
+              throw "Installed sidecar dry-run smoke failed: $dryRunOutput"
+            }
+            $after = @(
+              Get-ChildItem -LiteralPath $smokeRoot -Recurse -Force |
+                ForEach-Object { $_.FullName }
+            )
+            if (Compare-Object -ReferenceObject $before -DifferenceObject $after) {
+              throw "Installed sidecar read-only smoke mutated the temporary Grok directory."
+            }
+          }
+          finally {
+            $cleanupError = $null
+            if ($installed) {
+              try {
+                $uninstallers = @(
+                  Get-ChildItem -LiteralPath $installDir -Recurse `
+                    -Filter "uninstall*.exe" -File -ErrorAction SilentlyContinue
+                )
+                if ($uninstallers.Count -ne 1) {
+                  throw "Installed NSIS candidate must contain exactly one uninstaller."
+                }
+                $uninstaller = Start-Process -FilePath $uninstallers[0].FullName `
+                  -ArgumentList "/S" -Wait -PassThru
+                if ($uninstaller.ExitCode -ne 0) {
+                  throw "NSIS candidate uninstall failed with exit code $($uninstaller.ExitCode)."
+                }
+                $remainingPayload = @(
+                  Get-ChildItem -LiteralPath $installDir -Recurse -File `
+                    -ErrorAction SilentlyContinue |
+                    Where-Object {
+                      $_.Name -like "grok-keysmith*.exe" -and
+                      $_.Name -notlike "uninstall*"
+                    }
+                )
+                if ($remainingPayload.Count -ne 0) {
+                  throw "NSIS candidate uninstall left GUI or sidecar executables behind."
+                }
+              }
+              catch {
+                $cleanupError = $_.Exception.Message
+              }
+            }
+            Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            if ($null -ne $cleanupError) { throw $cleanupError }
+          }
 
       - name: Upload macOS candidate
         if: matrix.target == 'aarch64-apple-darwin'
