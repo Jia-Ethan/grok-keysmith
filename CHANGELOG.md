@@ -16,7 +16,6 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - Manifest `schema_version` 2 with before/after fingerprints, previous layer, and hook ownership.
 - Prompt runner (`run`) with `default` / `override`, `--prompt-file`, streaming, timeout, and process-tree cancel.
 - Productized `breaktest` harness with isolated run directories and a heuristic classifier.
-- Desktop GUI 0.1.0-beta.1 candidate workflows for ad-hoc-signed macOS Apple Silicon and unsigned Windows x64 bundles.
 
 ### Changed
 
@@ -32,6 +31,16 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - `GROK_KEYSMIth_CONTRACT` is only a deprecated alias of `GROK_KEYSMITH_CONTRACT`.
 - Historical breaktest scripts no longer hardcode a user home path.
 - Windows checks use canonical paths and LF prompt bytes; native `grok.exe` is preferred and `.cmd` / `.bat` override launches fail with an actionable diagnostic.
+
+## [Desktop 0.1.0-beta.1] - 2026-08-14
+
+First public desktop pre-release for macOS Apple Silicon and Windows x64.
+
+### Added
+
+- Tauri 2 and React desktop client for status, deployment, run, test, management, and settings workflows.
+- Bundled `grok-keysmith-cli` sidecar so the desktop packages do not require a separate Python installation.
+- macOS Apple Silicon DMG, Windows x64 current-user NSIS installer, and `SHA256SUMS` published through the GitHub Release.
 
 ## [0.3.0] - 2026-08-14
 
@@ -211,6 +220,7 @@ version and does not include the earlier private-only predecessor.
   races, not coordinated same-user tampering.
 
 [Unreleased]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.3.0...HEAD
+[Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1
 [0.3.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/v0.1.1
