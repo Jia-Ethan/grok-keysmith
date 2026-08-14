@@ -1,0 +1,9 @@
+[project]
+name = "grok-keysmith"
+version = "0.4.0-dev"
+requires-python = ">=3.8"
+description = "Versioned Grok Build instruction deployment"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

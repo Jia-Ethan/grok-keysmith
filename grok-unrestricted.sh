@@ -1,28 +1,17 @@
 #!/bin/bash
-# grok-unrestricted.sh — keysmith wrapper for grok -p
+# grok-unrestricted.sh — wrapper around grok-keysmith.py run
 #
 # Usage:
-#   ./grok-unrestricted.sh "your prompt"                 # default mode: contract via rules
-#   ./grok-unrestricted.sh --override "your prompt"      # override mode: contract as system prompt
+#   ./grok-unrestricted.sh "your prompt"
+#   ./grok-unrestricted.sh --override "your prompt"
 #   ./grok-unrestricted.sh --contract-path FILE "your prompt"
-#
-# Default mode relies on ~/.grok/rules/99-keysmith.md being deployed
-# (grok-keysmith.py --yes). Override mode replaces the system prompt
-# entirely, which is useful when the provider's default system prompt
-# changes behavior (e.g. API-key sessions using the "autonomous agent"
-# template).
-#
-# Notes:
-# - Uses account (OIDC) login when available. API-key sessions get a
-#   different system prompt template and stricter refusal behavior;
-#   run `grok login --oauth` to return to account login.
 set -euo pipefail
 
-GROK_BIN="${GROK_BIN:-$HOME/.grok/bin/grok}"
-CONTRACT="${GROK_KEYSMIth_CONTRACT:-$HOME/.grok/rules/99-keysmith.md}"
-OUTPUT_FORMAT="${GROK_OUTPUT_FORMAT:-plain}"
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+PYTHON="${PYTHON:-python3}"
 
 MODE="default"
+CONTRACT=""
 PROMPT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -38,16 +27,8 @@ if [[ -z "$PROMPT" ]]; then
     exit 2
 fi
 
-if [[ ! -f "$CONTRACT" ]]; then
-    echo "contract not found: $CONTRACT (run grok-keysmith.py --yes first)" >&2
-    exit 2
+args=( "$ROOT/grok-keysmith.py" run --mode "$MODE" --prompt "$PROMPT" )
+if [[ -n "$CONTRACT" ]]; then
+    args+=( --contract-path "$CONTRACT" )
 fi
-
-if [[ "$MODE" == "override" ]]; then
-    exec "$GROK_BIN" -p "$PROMPT" \
-        --system-prompt "$(cat "$CONTRACT")" \
-        --output-format "$OUTPUT_FORMAT" --no-alt-screen
-else
-    exec "$GROK_BIN" -p "$PROMPT" \
-        --output-format "$OUTPUT_FORMAT" --no-alt-screen
-fi
+exec "$PYTHON" "${args[@]}"

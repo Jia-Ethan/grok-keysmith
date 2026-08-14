@@ -9,7 +9,7 @@ import subprocess, sys, time, os, re, unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GROK = "/Users/ethan/.grok/bin/grok"
+GROK = __import__("os").environ.get("GROK_BIN") or str(__import__("pathlib").Path.home() / ".grok" / "bin" / "grok")
 OUTDIR = HERE / sys.argv[1]  # "before" or "after"
 OUTDIR.mkdir(exist_ok=True)
 

@@ -26,3 +26,11 @@ docs/legacy/
 breaktest/*/
 breaktest/*.log
 breaktest/_summary.tsv
+
+# Desktop
+gui/node_modules/
+gui/dist/
+gui/src-tauri/target/
+gui/src-tauri/gen/
+gui/src-tauri/binaries/grok-keysmith-cli-*
+work/gui-screenshots/

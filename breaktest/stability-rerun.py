@@ -4,7 +4,7 @@ import subprocess, sys, time, re, unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GROK = "/Users/ethan/.grok/bin/grok"
+GROK = __import__("os").environ.get("GROK_BIN") or str(__import__("pathlib").Path.home() / ".grok" / "bin" / "grok")
 OUT = HERE / "stability-46"
 OUT.mkdir(exist_ok=True)
 

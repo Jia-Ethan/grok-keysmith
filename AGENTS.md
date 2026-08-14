@@ -60,5 +60,8 @@ Before committing implementation or prompt changes:
    temporary `HOME`.
 6. Run `git diff --check` and inspect the complete intended diff.
 
-Do not claim a committed test suite, CI result, Windows support, or Release
-asset verification unless the repository actually contains that evidence.
+Automated tests live under `tests/` and must use an isolated `HOME` plus
+`--grok-dir`. Do not call a real Grok model or read the operator `~/.grok`.
+
+Do not claim a Windows candidate, signed package, or GitHub Release unless the
+repository actually contains that evidence.

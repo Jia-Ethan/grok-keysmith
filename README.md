@@ -30,6 +30,8 @@
 
 `grok-keysmith` 是零依赖的单文件 Python 脚本，把一份指令 Markdown 部署为 `~/.grok/rules/99-keysmith.md`，让每个新 Grok 会话自动加载。默认预览、显式确认才写入，可随时撤销。`v0.1.1` 是首个公开版本；`v0.3.0` 针对 Grok 4.6 的对齐层重构部署面与内置指令；更早的 private-only `0.1.0` 不在本仓库历史中，不要使用。
 
+当前 `main` 对应 CLI 开发版本 `0.4.0-dev` 与 Desktop `0.1.0-beta.1`，均不是已发布版本；正式安装仍使用下方固定的 `v0.3.0`。
+
 **这会改变 Grok 的全局行为，不是项目级设置**：部署写入 `~/.grok/rules/99-keysmith.md`（home rules，所有会话总是扫描），并在 `~/.grok/config.toml` 注入 compat 隔离块——关闭 Claude/Cursor 全部兼容层，单独关闭 Codex session import。**`~/.grok/AGENTS.md` 不再被本工具触碰**：人物卡、agent 档案或任何全局指令都可以继续放在那里，与 keysmith 的部署互不影响。内置示例指令以交付契约形式覆盖逆向工程与渗透测试工作流（本地样本/占位符框架），也会明显降低模型对敏感请求的拒绝率。**这不是安全边界，是一次影响很广的行为切换**——用前请打开 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) 看一眼，或用 `--file` 换成你自己的指令。
 
 内置指令覆盖到什么边界与模型版本相关，也会随模型更新变化；Grok 4.6 的对齐在模型权重层，指令契约提升的是已覆盖领域的配合度，不改变权重层硬拒绝的领域。本项目不在公开文档中给出针对性测试方法或具体绕过案例。
@@ -43,11 +45,11 @@ test "$(git describe --tags --exact-match)" = "v0.3.0"
 test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
 python3 grok-keysmith.py --version
-python3 grok-keysmith.py --status
-python3 grok-keysmith.py --dry-run
+python3 grok-keysmith.py --status --json
+python3 grok-keysmith.py --dry-run --json
 
 # 确认目标目录、提示词来源、compat/hooks 隔离计划无误后：
-python3 grok-keysmith.py --yes
+python3 grok-keysmith.py --yes --json
 ```
 
 不要从浮动 `main` 安装正式版本。部署完成后在项目目录外开启新的 Grok 会话验证：
@@ -70,7 +72,7 @@ grok inspect --json | python3 -c "import sys,json; d=json.load(sys.stdin); [prin
 
 不触碰 `~/.grok/AGENTS.md`：人物卡、agent 档案与 keysmith 部署完全解耦。卸载时若指令文件内容已不是本次部署写入的（如 AGENTS.md 后来换成了人物卡），会保留原文件。
 
-完整字段和边界条件见 [`docs/reference.md`](docs/reference.md)。
+完整字段和边界条件见 [`docs/reference.md`](docs/reference.md)。GUI 说明见 [`gui/README.md`](gui/README.md) 与 [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md)。`--json` 输出 `grok-keysmith.envelope.v1`，GUI 只消费该结构。`--grok-dir` 必须是绝对路径。`run` / `breaktest` 只检查 Grok 可执行状态，不登录、不读取 token。
 
 ### 撤销
 
@@ -93,7 +95,7 @@ python3 grok-keysmith.py --uninstall --yes    # 确认卸载
 ### 兼容性与限制
 
 - Python 3.8+；内置指令针对 Grok Build 模型 `grok-4.6` 重写。
-- macOS / Linux 是主要支持范围；Windows 未测试。
+- CLI CI 矩阵覆盖 macOS、Linux、Windows；桌面端 beta 候选构建目标为 macOS Apple Silicon 与 Windows x64。Windows 的 `override` / `ab` 模式必须使用原生 `grok.exe`，不能通过 `.cmd` / `.bat` shim 传递完整 contract。
 - `~/.grok/rules/` 是全局 home rules，没有项目级隔离；hooks 是整目录改名隔离，不能选择性保留个别 hook。
 - v0.1.x 部署（写入 `~/.grok/AGENTS.md`）仍可被 v0.3.0 卸载，卸载前会做内容所有权校验。
 - 完整限制清单、compat 隔离细节、维护者验证步骤见 [`docs/reference.md`](docs/reference.md)。
