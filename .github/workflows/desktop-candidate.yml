@@ -61,6 +61,18 @@ jobs:
           cache: npm
           cache-dependency-path: gui/package-lock.json
 
+      - name: Set up Rust
+        if: matrix.target != 'linux-static'
+        shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --target "$TARGET_TRIPLE"
+          rustup default stable
+          rustc --version
+          cargo --version
+
       - name: Frontend and Python gates
         working-directory: gui
         env:
