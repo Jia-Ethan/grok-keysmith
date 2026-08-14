@@ -32,6 +32,10 @@ compatibility, hook, manifest, and recovery state under `~/.grok`.
   all three byte-for-byte and update README, CHANGELOG, and SECURITY hashes.
 - Keep Python 3.8 compatibility and standard-library-only runtime behavior
   unless a versioned compatibility change is explicitly approved.
+- Keep the desktop icon aligned with the canonical Keysmith series source
+  (`gui/src-tauri/icons/source.png`, SHA-256 `d7f5d09142b9bab6cd326fc18869e51d7adcba6d4f0929c703677186b7f3b347`).
+  Regenerate the complete Tauri icon set and sync `gui/public/favicon.ico`; do
+  not replace only one platform asset.
 
 ## Documentation Rules
 
