@@ -15,9 +15,12 @@ Usage:
   grok-keysmith.py --dry-run
   grok-keysmith.py --yes
   grok-keysmith.py --uninstall --yes
-  grok-keysmith.py --restore-hooks
+  grok-keysmith.py --restore-hooks --yes
   grok-keysmith.py --recover --yes
   grok-keysmith.py --file custom.md --name my-rules --yes
+  grok-keysmith.py --grok-dir /abs/path --json --status
+  grok-keysmith.py run --mode default|override --prompt "..."
+  grok-keysmith.py breaktest --bank prompts.txt --mode ab --output-dir DIR
 
 Zero runtime dependencies. Python 3.8+.
 """
@@ -31,33 +34,15 @@ import os
 import shutil
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Version and bundled prompt
 # ---------------------------------------------------------------------------
 
-VERSION = "0.3.0"
+VERSION = "0.4.0-dev"
 TOOL_NAME = "grok-keysmith"
-MANIFEST_FILENAME = ".grok-keysmith-manifest.json"
-JOURNAL_DIR_PREFIX = ".grok-keysmith-transaction-"
-INTENT_FILENAME = "intent.json"
-JOURNAL_FILENAME = "journal.json"
-
-GROK_HOME = Path(os.path.expanduser("~/.grok"))
-RULES_DIR = GROK_HOME / "rules"
-RULES_MD_FILENAME = "99-keysmith.md"
-RULES_MD = RULES_DIR / RULES_MD_FILENAME
-# v0.1.x deployed to ~/.grok/AGENTS.md; uninstall/recover read the target
-# path from the manifest/intent, so old deployments still clean up correctly.
-CONFIG_TOML = GROK_HOME / "config.toml"
-HOOKS_DIR = GROK_HOME / "hooks"
-MANIFEST_PATH = GROK_HOME / MANIFEST_FILENAME
-
-# Bundled prompt revision v0.9 (independent of CLI version)
-# Source: grok-unrestricted.md, embedded byte-for-byte.
 BUNDLED_PROMPT_SHA256 = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
 BUNDLED_PROMPT_B64 = (
@@ -220,138 +205,27 @@ BUNDLED_PROMPT_B64 = (
 BUNDLED_PROMPT = base64.b64decode(BUNDLED_PROMPT_B64).decode("utf-8")
 
 # ---------------------------------------------------------------------------
-# Localization (minimal zh/en)
+# Constants
 # ---------------------------------------------------------------------------
 
-LANG = "zh-CN"
+ENVELOPE_SCHEMA = "grok-keysmith.envelope.v1"
+MANIFEST_SCHEMA_VERSION = 2
+JOURNAL_SCHEMA_VERSION = 1
+MANIFEST_FILENAME = ".grok-keysmith-manifest.json"
+JOURNAL_DIR_PREFIX = ".grok-keysmith-transaction-"
+LOCK_FILENAME = ".grok-keysmith.lock"
+INTENT_FILENAME = "intent.json"
+JOURNAL_FILENAME = "journal.json"
+RULES_MD_FILENAME = "99-keysmith.md"
+HARD_EXIT = 86
 
-_MSGS = {
-    "found_grok_dir": ("找到 Grok 配置目录: ", "Found Grok config dir: "),
-    "no_grok_dir": ("未找到 ~/.grok 目录;请先运行 grok 至少一次。", "No ~/.grok directory; run grok at least once first."),
-    "manifest_found": ("找到部署清单", "Deployment manifest found"),
-    "manifest_missing": ("未找到部署清单", "No deployment manifest"),
-    "deployable": ("可部署", "Deployable"),
-    "not_deployable": ("不可部署", "Not deployable"),
-    "ready": ("就绪", "ready"),
-    "compat_isolated": ("compat 层已隔离", "compat layers isolated"),
-    "compat_active": ("compat 层活跃", "compat layers active"),
-    "hooks_isolated": ("hooks 已隔离", "hooks isolated"),
-    "hooks_active": ("hooks 活跃", "hooks active"),
-    "rules_md_present": ("keysmith 规则已部署", "keysmith rules deployed"),
-    "rules_md_missing": ("keysmith 规则未部署", "keysmith rules not deployed"),
-    "dry_run": ("[dry-run] 不写入文件。添加 --yes 确认部署。", "[dry-run] No files written. Add --yes to confirm."),
-    "deployed": ("部署完成", "Deployment complete"),
-    "uninstalled": ("卸载完成", "Uninstall complete"),
-    "hooks_restored": ("hooks 已恢复", "hooks restored"),
-    "nothing_to_restore": ("没有可恢复的 hooks", "No hooks to restore"),
-    "recovered": ("事务恢复完成", "Transaction recovered"),
-    "no_journal": ("未找到中断的事务日志", "No interrupted transaction journal found"),
-    "confirm_yes": ("如确认执行,请重新运行并添加 --yes。", "To apply, run again with --yes."),
-}
+STATE_NOT_INSTALLED = "not-installed"
+STATE_ACTIVE_ALIGNED = "active-aligned"
+STATE_INACTIVE = "inactive"
+STATE_DRIFT = "drift"
+STATE_CONFLICT = "conflict"
+STATE_RECOVERY = "recovery-required"
 
-
-def _tr(key: str) -> str:
-    pair = _MSGS.get(key)
-    if pair is None:
-        return key
-    return pair[0] if LANG == "zh-CN" else pair[1]
-
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
-
-@dataclass
-class FileFingerprint:
-    path: str
-    exists: bool
-    size: int
-    sha256: str
-    mtime: float
-
-    @classmethod
-    def of(cls, path: Path) -> "FileFingerprint":
-        if not path.exists() or not path.is_file():
-            return cls(path=str(path), exists=False, size=0, sha256="", mtime=0.0)
-        data = path.read_bytes()
-        return cls(
-            path=str(path),
-            exists=True,
-            size=len(data),
-            sha256=hashlib.sha256(data).hexdigest(),
-            mtime=path.stat().st_mtime,
-        )
-
-
-@dataclass
-class Manifest:
-    tool: str = TOOL_NAME
-    version: str = VERSION
-    deployment_id: str = ""
-    deployed_at: str = ""
-    prompt_source: str = "bundled"  # "bundled" | "custom:<path>"
-    prompt_sha256: str = ""
-    prompt_name: str = "grok-unrestricted"
-    # Instruction file fingerprint. v0.1.x recorded ~/.grok/AGENTS.md here;
-    # v0.2.x records ~/.grok/rules/99-keysmith.md. Field name kept for
-    # backward-compatible uninstall of v0.1.x deployments.
-    agents_md: Dict[str, Any] = field(default_factory=dict)
-    config_toml: Dict[str, Any] = field(default_factory=dict)
-    hooks: List[Dict[str, Any]] = field(default_factory=list)
-    backups: Dict[str, str] = field(default_factory=dict)
-    previous_manifest_backup: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def now_iso() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def deployment_id() -> str:
-    return time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-
-
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def sha256_file(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return sha256_bytes(path.read_bytes())
-
-
-def atomic_write_text(path: Path, content: str, mode: int = 0o644) -> None:
-    """Write text atomically: write to temp, fsync, rename."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp-keysmith")
-    tmp.write_text(content, encoding="utf-8")
-    os.chmod(tmp, mode)
-    # fsync
-    with open(tmp, "rb") as f:
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-
-
-def backup_file(path: Path, backup_dir: Path = GROK_HOME) -> Optional[Path]:
-    """Create a timestamped backup of a file. Returns backup path or None."""
-    if not path.exists() or not path.is_file():
-        return None
-    ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-    backup_name = f"{path.name}.keysmith-backup-{ts}"
-    backup_path = backup_dir / backup_name
-    shutil.copy2(path, backup_path)
-    return backup_path
-
-
-# ---------------------------------------------------------------------------
-# Config.toml compat editing
-# ---------------------------------------------------------------------------
-
-# The compat block we inject to isolate Claude/Cursor pollution sources.
 COMPAT_BLOCK = """
 [compat.claude]
 skills = false
@@ -372,775 +246,1656 @@ sessions = false
 [compat.codex]
 sessions = false
 """
-
 COMPAT_BLOCK_BEGIN_MARKER = "# === grok-keysmith compat isolation begin ==="
 COMPAT_BLOCK_END_MARKER = "# === grok-keysmith compat isolation end ==="
+COMPAT_TABLE_HEADERS = ("[compat.claude]", "[compat.cursor]", "[compat.codex]")
+
+LANG = "en"
 
 
-def compat_block_wrapped() -> str:
-    return f"\n{COMPAT_BLOCK_BEGIN_MARKER}\n{COMPAT_BLOCK.strip()}\n{COMPAT_BLOCK_END_MARKER}\n"
+class KeysmithError(Exception):
+    def __init__(self, message, exit_code=1, diagnostics=None):
+        Exception.__init__(self, message)
+        self.exit_code = exit_code
+        self.diagnostics = list(diagnostics or [message])
 
 
-def config_has_compat_block(content: str) -> bool:
+class LockError(KeysmithError):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Localization
+# ---------------------------------------------------------------------------
+
+def _tr(zh_cn, english):
+    return zh_cn if LANG == "zh-CN" else english
+
+
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def new_txid():
+    return uuid.uuid4().hex
+
+
+def _checkpoint(name):
+    hook = os.environ.get("GROK_KEYSMITH_FAULT_INJECT")
+    if hook == name:
+        os._exit(HARD_EXIT)
+
+
+# ---------------------------------------------------------------------------
+# Paths / fingerprints / identity
+# ---------------------------------------------------------------------------
+
+def fingerprint_bytes(data, mtime_ns=0):
+    return {
+        "sha256": sha256_bytes(data),
+        "size": len(data),
+        "mtime_ns": int(mtime_ns),
+    }
+
+
+def fingerprint_path(path):
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        return None
+    data = path.read_bytes()
+    stat = path.stat()
+    mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9))
+    return fingerprint_bytes(data, mtime_ns)
+
+
+def fingerprints_match(left, right):
+    if left is None or right is None:
+        return left is right
+    return left.get("sha256") == right.get("sha256") and int(left.get("size", -1)) == int(
+        right.get("size", -2)
+    )
+
+
+def classify_node(path):
+    path = Path(path)
+    if path.is_symlink():
+        return "symlink"
+    if not path.exists():
+        return "missing"
+    if path.is_dir():
+        return "directory"
+    if path.is_file():
+        return "regular"
+    return "other"
+
+
+def dir_identity(path):
+    stat = path.stat()
+    return {"dev": stat.st_dev, "ino": stat.st_ino}
+
+
+class GrokPaths(object):
+    def __init__(self, grok_dir):
+        self.grok_dir = Path(grok_dir)
+        self.rules_dir = self.grok_dir / "rules"
+        self.rule = self.rules_dir / RULES_MD_FILENAME
+        self.config = self.grok_dir / "config.toml"
+        self.hooks_dir = self.grok_dir / "hooks"
+        self.manifest = self.grok_dir / MANIFEST_FILENAME
+        self.lock = self.grok_dir / LOCK_FILENAME
+
+    def as_target(self):
+        return {"grok_dir": str(self.grok_dir)}
+
+
+def bind_grok_dir(value):
+    if value is None or value == "":
+        path = Path.home() / ".grok"
+    else:
+        path = Path(value)
+        if not path.is_absolute():
+            raise KeysmithError(
+                "--grok-dir must be an absolute path",
+                exit_code=2,
+                diagnostics=["--grok-dir must be an absolute path"],
+            )
+    if path.exists() or path.is_symlink():
+        if path.is_symlink():
+            resolved = path.resolve()
+            if not resolved.is_dir():
+                raise KeysmithError(
+                    "grok-dir symlink does not resolve to a directory",
+                    diagnostics=["grok-dir symlink does not resolve to a directory"],
+                )
+            return GrokPaths(resolved)
+        if not path.is_dir():
+            raise KeysmithError(
+                "grok-dir exists but is not a directory",
+                diagnostics=["grok-dir exists but is not a directory"],
+            )
+    return GrokPaths(path)
+
+
+# ---------------------------------------------------------------------------
+# Atomic IO
+# ---------------------------------------------------------------------------
+
+def _fsync_dir(path):
+    path = Path(path)
+    if os.name == "nt" or not path.is_dir():
+        return
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def exclusive_temp_path(target, txid):
+    target = Path(target)
+    return target.parent / (".%s.tmp-keysmith-%s-%s" % (target.name, txid, os.getpid()))
+
+
+def atomic_write_bytes(path, data, mode=0o644, txid=None):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = txid or new_txid()
+    tmp = exclusive_temp_path(path, token)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    fd = os.open(str(tmp), flags, mode)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(str(tmp), mode)
+        os.replace(str(tmp), str(path))
+        _fsync_dir(path.parent)
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def atomic_write_text(path, content, mode=0o644, txid=None):
+    atomic_write_bytes(path, content.encode("utf-8"), mode=mode, txid=txid)
+
+
+def unique_backup_path(path, dest_dir):
+    ts = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+    name = "%s.keysmith-backup-%s-%s" % (Path(path).name, ts, uuid.uuid4().hex[:10])
+    return Path(dest_dir) / name
+
+
+def backup_file(path, dest_dir, txid=None):
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        return None
+    dest = unique_backup_path(path, dest_dir)
+    data = path.read_bytes()
+    atomic_write_bytes(dest, data, mode=0o644, txid=txid)
+    shutil.copystat(str(path), str(dest))
+    return dest
+
+
+class WriteLock(object):
+    def __init__(self, paths):
+        self.paths = paths
+        self.fd = None
+
+    def acquire(self):
+        self.paths.grok_dir.mkdir(parents=True, exist_ok=True)
+        flags = os.O_CREAT | os.O_RDWR
+        self.fd = os.open(str(self.paths.lock), flags, 0o644)
+        if os.path.getsize(str(self.paths.lock)) == 0:
+            os.write(self.fd, ("%s\n" % os.getpid()).encode("ascii"))
+            os.lseek(self.fd, 0, os.SEEK_SET)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, IOError):
+            os.close(self.fd)
+            self.fd = None
+            raise LockError(
+                "write lock is held by another grok-keysmith process",
+                diagnostics=["write lock is held by another grok-keysmith process"],
+            )
+        return self
+
+    def release(self):
+        if self.fd is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                try:
+                    os.lseek(self.fd, 0, os.SEEK_SET)
+                    msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+            else:
+                import fcntl
+
+                fcntl.flock(self.fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self.fd)
+            self.fd = None
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, exc_type, exc, tb):
+        self.release()
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Compat editing
+# ---------------------------------------------------------------------------
+
+def compat_block_wrapped():
+    return "\n%s\n%s\n%s\n" % (
+        COMPAT_BLOCK_BEGIN_MARKER,
+        COMPAT_BLOCK.strip(),
+        COMPAT_BLOCK_END_MARKER,
+    )
+
+
+def config_has_compat_block(content):
     return COMPAT_BLOCK_BEGIN_MARKER in content and COMPAT_BLOCK_END_MARKER in content
 
 
-def config_add_compat_block(content: str) -> str:
-    """Add our compat isolation block to config.toml content.
-
-    TOML forbids duplicate table headers — a second [compat.*] section with the
-    same name is a parse error, not an override. So before we append our block we
-    must strip every pre-existing [compat.claude] / [compat.cursor] / [compat.codex]
-    section (whether ours, marked, or left by another tool), so our injected block
-    is the single, unambiguous source for these tables.
-    """
-    # Drop any external (non-keysmith) [compat.*] sections that would collide
-    content = config_strip_external_compat_sections(content)
-    # Remove any prior keysmith block
-    content = config_remove_compat_block(content)
-    # Append fresh block
-    if not content.endswith("\n"):
-        content += "\n"
-    content += compat_block_wrapped()
-    return content
+def _is_table_header(line):
+    stripped = line.strip()
+    return stripped.startswith("[") and (stripped.endswith("]") or stripped.endswith("]."))
 
 
-def config_remove_compat_block(content: str) -> str:
-    """Remove our compat isolation block from config.toml content."""
+def config_remove_compat_block(content):
     while True:
         begin = content.find(COMPAT_BLOCK_BEGIN_MARKER)
         if begin < 0:
             break
-        end = content.find(COMPAT_BLOCK_END_MARKER)
+        end = content.find(COMPAT_BLOCK_END_MARKER, begin)
         if end < 0:
             break
-        # Remove from begin to end of end-marker line (including newline)
         end_line_end = content.find("\n", end)
         if end_line_end < 0:
             end_line_end = len(content)
         else:
             end_line_end += 1
         content = content[:begin] + content[end_line_end:]
-    # Clean up any leading blank lines we might have left
     while content.endswith("\n\n\n"):
         content = content[:-1]
     return content
 
 
-# Compat table headers keysmith owns and (re)injects. Any pre-existing section
-# with one of these headers collides with our injected block and must be removed
-# before injection — TOML rejects duplicate table headers outright.
-COMPAT_TABLE_HEADERS = ("[compat.claude]", "[compat.cursor]", "[compat.codex]")
-
-
-def _is_table_header(line: str) -> bool:
-    """True if the line starts a TOML table or array-of-tables header."""
-    s = line.strip()
-    return s.startswith("[") and (s.endswith("]") or s.endswith("]."))
-
-
-def config_strip_external_compat_sections(content: str) -> str:
-    """Remove every [compat.claude]/[compat.cursor]/[compat.codex] section.
-
-    Operates line-by-line. A section spans from its table header up to (but not
-    including) the next table header, the end marker of a keysmith block, or EOF.
-    Marked keysmith blocks are left intact here; config_remove_compat_block owns
-    those. This guarantees that after stripping, no [compat.*] header in the
-    content would duplicate the header of the block we are about to append.
-    """
+def config_strip_external_compat_sections(content):
     lines = content.splitlines(keepends=True)
-    out: list[str] = []
+    out = []
     skipping = False
+    removed = []
     for line in lines:
         stripped = line.strip()
-        # Stop skipping when we reach a new table header or the keysmith begin
-        # marker — both signal the start of a fresh, independently-owned block.
         if skipping:
             if _is_table_header(line) or stripped == COMPAT_BLOCK_BEGIN_MARKER:
                 skipping = False
             else:
                 continue
-        if not skipping and stripped in COMPAT_TABLE_HEADERS:
+        if (not skipping) and stripped in COMPAT_TABLE_HEADERS:
             skipping = True
+            removed.append(stripped)
             continue
         if not skipping:
             out.append(line)
     result = "".join(out)
-    # Collapse stray blank lines left where a section was excised
     while "\n\n\n\n" in result:
         result = result.replace("\n\n\n\n", "\n\n\n")
-    return result
+    return result, removed
+
+
+def config_add_compat_block(content):
+    content, removed = config_strip_external_compat_sections(content)
+    content = config_remove_compat_block(content)
+    if content and not content.endswith("\n"):
+        content += "\n"
+    content += compat_block_wrapped()
+    return content, removed
 
 
 # ---------------------------------------------------------------------------
-# Hooks isolation
+# Hooks
 # ---------------------------------------------------------------------------
 
-def list_active_hooks() -> List[Path]:
-    """List active hook JSON files in ~/.grok/hooks/."""
-    if not HOOKS_DIR.exists():
+def list_json_files(hooks_dir, disabled=False):
+    if not hooks_dir.exists():
         return []
-    return sorted(
-        p for p in HOOKS_DIR.iterdir()
-        if p.is_file() and p.suffix == ".json" and not p.name.endswith(".disabled")
-    )
+    found = []
+    for entry in sorted(hooks_dir.iterdir()):
+        if not entry.is_file() or entry.is_symlink():
+            continue
+        if disabled:
+            if entry.name.endswith(".json.disabled"):
+                found.append(entry)
+        elif entry.suffix == ".json" and not entry.name.endswith(".disabled"):
+            found.append(entry)
+    return found
 
 
-def list_disabled_hooks() -> List[Path]:
-    if not HOOKS_DIR.exists():
+def hook_rel(paths, path):
+    try:
+        return str(Path(path).resolve().relative_to(paths.grok_dir.resolve())).replace("\\", "/")
+    except Exception:
+        return Path(path).name
+
+
+# ---------------------------------------------------------------------------
+# Journal / lock-aware transactions
+# ---------------------------------------------------------------------------
+
+def journal_dirs(paths):
+    if not paths.grok_dir.exists():
         return []
-    return sorted(
-        p for p in HOOKS_DIR.iterdir()
-        if p.is_file() and p.name.endswith(".disabled")
-    )
+    found = []
+    for entry in sorted(paths.grok_dir.iterdir()):
+        if entry.is_dir() and entry.name.startswith(JOURNAL_DIR_PREFIX):
+            found.append(entry)
+    return found
 
 
-def isolate_hooks() -> List[Tuple[Path, Path]]:
-    """Rename each active hook .json to .json.disabled. Returns (original, disabled) pairs."""
-    pairs = []
-    for hook in list_active_hooks():
-        disabled = hook.with_suffix(".json.disabled")
-        if disabled.exists():
-            # Move existing disabled out of the way with timestamp
-            ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-            archive = disabled.with_name(f"{disabled.name}.keysmith-archive-{ts}")
-            shutil.move(str(disabled), str(archive))
-        shutil.move(str(hook), str(disabled))
-        pairs.append((hook, disabled))
-    return pairs
+def interrupted_journals(paths):
+    found = []
+    for entry in journal_dirs(paths):
+        journal_path = entry / JOURNAL_FILENAME
+        if not journal_path.is_file():
+            found.append(entry)
+            continue
+        try:
+            data = json.loads(journal_path.read_text(encoding="utf-8"))
+        except Exception:
+            found.append(entry)
+            continue
+        if data.get("phase") not in ("committed", "recovered"):
+            found.append(entry)
+    return found
 
 
-def restore_hooks() -> List[Tuple[Path, Path]]:
-    """Restore disabled hooks back to active. Returns (disabled, restored) pairs."""
-    pairs = []
-    for disabled in list_disabled_hooks():
-        # Only restore keysmith-isolated hooks (we track via manifest, but MVP: restore all .disabled)
-        original = disabled.with_suffix("")  # strip .disabled -> .json
-        if original.exists():
-            ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-            archive = original.with_name(f"{original.name}.keysmith-conflict-{ts}")
-            shutil.move(str(original), str(archive))
-        shutil.move(str(disabled), str(original))
-        pairs.append((disabled, original))
-    return pairs
+def journal_dir_for(paths, txid):
+    return paths.grok_dir / (JOURNAL_DIR_PREFIX + txid)
+
+
+def write_json(path, data, mode=0o644, txid=None):
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(path, payload, mode=mode, txid=txid)
+
+
+def write_intent(jdir, intent, txid):
+    path = jdir / INTENT_FILENAME
+    write_json(path, intent, mode=0o444, txid=txid)
+    try:
+        os.chmod(str(path), 0o444)
+    except OSError:
+        pass
+    return path
+
+
+def write_journal(jdir, payload, txid):
+    path = jdir / JOURNAL_FILENAME
+    write_json(path, payload, mode=0o644, txid=txid)
+    return path
+
+
+def cleanup_journal(jdir):
+    if not jdir.exists():
+        return
+    for item in jdir.iterdir():
+        try:
+            os.chmod(str(item), 0o644)
+        except Exception:
+            pass
+        if item.is_file():
+            item.unlink()
+    try:
+        jdir.rmdir()
+    except OSError:
+        shutil.rmtree(str(jdir), ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
-# Journal / transaction
+# Manifest
 # ---------------------------------------------------------------------------
 
-def journal_dir_for(deploy_id: str) -> Path:
-    return GROK_HOME / f"{JOURNAL_DIR_PREFIX}{deploy_id}"
+def load_raw_manifest(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
-def write_intent(deploy_id: str, intent: Dict[str, Any]) -> Path:
-    """Write immutable intent.json for a transaction."""
-    jdir = journal_dir_for(deploy_id)
-    jdir.mkdir(parents=True, exist_ok=True)
-    intent_path = jdir / INTENT_FILENAME
-    intent_data = {
-        **intent,
-        "written_at": now_iso(),
+def _legacy_fp_to_new(node):
+    if not node:
+        return None
+    sha = node.get("sha256") or ""
+    if not sha:
+        return None
+    mtime = node.get("mtime_ns")
+    if mtime is None:
+        mtime = int(float(node.get("mtime") or 0) * 1e9)
+    return {
+        "sha256": sha,
+        "size": int(node.get("size") or 0),
+        "mtime_ns": int(mtime),
+    }
+
+
+def normalize_manifest(raw, paths):
+    if not raw:
+        return None
+    if int(raw.get("schema_version") or 0) >= 2 and "layer" in raw:
+        return raw
+    agents = raw.get("agents_md") or {}
+    config = raw.get("config_toml") or {}
+    backups = raw.get("backups") or {}
+    rule_path = agents.get("path") or str(paths.rule)
+    owned = []
+    for item in raw.get("hooks") or []:
+        owned.append(
+            {
+                "original": item.get("original") or "",
+                "disabled": item.get("disabled") or "",
+                "before": None,
+                "after": None,
+                "backup": None,
+            }
+        )
+    rule_backup = backups.get("rules_md") or backups.get("agents_md")
+    config_backup = backups.get("config_toml")
+    return {
+        "schema_version": 0,
+        "legacy": True,
+        "tool": raw.get("tool") or TOOL_NAME,
+        "version": raw.get("version") or "",
+        "deployment_id": raw.get("deployment_id") or "",
+        "created_at": raw.get("deployed_at") or raw.get("created_at") or "",
+        "prompt_source": raw.get("prompt_source") or "bundled",
+        "prompt_name": raw.get("prompt_name") or "grok-unrestricted",
+        "prompt_sha256": raw.get("prompt_sha256") or "",
+        "layer": {
+            "rule": {
+                "path": rule_path,
+                "before": None,
+                "after": _legacy_fp_to_new(agents),
+                "backup": rule_backup,
+            },
+            "config": {
+                "path": config.get("path") or str(paths.config),
+                "before": None,
+                "after": _legacy_fp_to_new(config),
+                "backup": config_backup,
+            },
+            "hooks": {
+                "owned": owned,
+                "external_disabled_untouched": [],
+            },
+            "previous_manifest": {
+                "before": None,
+                "backup": raw.get("previous_manifest_backup"),
+            },
+        },
+        "previous_layer": None,
+        "raw": raw,
+    }
+
+
+def load_manifest(paths):
+    if not paths.manifest.is_file():
+        return None
+    raw = load_raw_manifest(paths.manifest)
+    if raw is None:
+        return {"invalid": True}
+    return normalize_manifest(raw, paths)
+
+
+# ---------------------------------------------------------------------------
+# Envelope
+# ---------------------------------------------------------------------------
+
+def emit_envelope(operation, preview, apply_mode, ok, target, plan, result, diagnostics, exit_code, as_json, human_lines):
+    envelope = {
+        "schema": ENVELOPE_SCHEMA,
         "tool": TOOL_NAME,
         "version": VERSION,
+        "operation": operation,
+        "preview": bool(preview),
+        "apply": bool(apply_mode),
+        "ok": bool(ok),
+        "target": target or {},
+        "plan": plan,
+        "result": result,
+        "diagnostics": list(diagnostics or []),
+        "exit_code": int(exit_code),
     }
-    # Write once, make read-only
-    intent_path.write_text(json.dumps(intent_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.chmod(intent_path, 0o444)
-    return intent_path
-
-
-def write_journal(deploy_id: str, phase: str, data: Dict[str, Any]) -> Path:
-    """Write/update journal.json with current phase."""
-    jdir = journal_dir_for(deploy_id)
-    jdir.mkdir(parents=True, exist_ok=True)
-    jpath = jdir / JOURNAL_FILENAME
-    existing = {}
-    if jpath.exists():
-        try:
-            existing = json.loads(jpath.read_text(encoding="utf-8"))
-        except Exception:
-            existing = {}
-    existing["deployment_id"] = deploy_id
-    existing["phase"] = phase
-    existing["updated_at"] = now_iso()
-    existing["data"] = {**existing.get("data", {}), **data}
-    jpath.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
-    return jpath
-
-
-def find_interrupted_journals() -> List[Path]:
-    """Find journal dirs that are not in 'committed' or 'recovered' terminal state."""
-    if not GROK_HOME.exists():
-        return []
-    journals = []
-    for entry in GROK_HOME.iterdir():
-        if not entry.is_dir():
-            continue
-        if not entry.name.startswith(JOURNAL_DIR_PREFIX):
-            continue
-        jpath = entry / JOURNAL_FILENAME
-        if not jpath.exists():
-            journals.append(entry)
-            continue
-        try:
-            data = json.loads(jpath.read_text(encoding="utf-8"))
-            phase = data.get("phase", "")
-            if phase not in ("committed", "recovered"):
-                journals.append(entry)
-        except Exception:
-            journals.append(entry)
-    return sorted(journals)
-
-
-def cleanup_journal(jdir: Path) -> None:
-    """Remove a journal directory after successful terminal state."""
-    if jdir.exists() and jdir.is_dir():
-        # Make any read-only files writable first
-        for f in jdir.iterdir():
-            try:
-                os.chmod(f, 0o644)
-            except Exception:
-                pass
-        shutil.rmtree(jdir)
+    if as_json:
+        sys.stdout.write(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n")
+    else:
+        for line in human_lines or []:
+            sys.stdout.write(line + "\n")
+        if not human_lines and diagnostics:
+            for item in diagnostics:
+                sys.stdout.write(item + "\n")
+    return exit_code
 
 
 # ---------------------------------------------------------------------------
-# Status / plan computation
+# Status
 # ---------------------------------------------------------------------------
 
-@dataclass
-class StatusReport:
-    grok_dir_exists: bool
-    rules_md: FileFingerprint
-    config_toml: FileFingerprint
-    config_has_compat_block: bool
-    active_hooks: List[str]
-    disabled_hooks: List[str]
-    manifest: Optional[Dict[str, Any]]
-    interrupted_journals: List[str]
-    deployable: bool
+def _rule_node(paths):
+    kind = classify_node(paths.rule)
+    fp = fingerprint_path(paths.rule) if kind == "regular" else None
+    return {"kind": kind, "path": str(paths.rule), "fingerprint": fp}
 
 
-def compute_status() -> StatusReport:
-    grok_exists = GROK_HOME.exists()
-    rules_fp = FileFingerprint.of(RULES_MD)
-    config_fp = FileFingerprint.of(CONFIG_TOML)
-    config_content = CONFIG_TOML.read_text(encoding="utf-8") if config_fp.exists else ""
-    has_compat = config_has_compat_block(config_content)
-    active = [str(p.name) for p in list_active_hooks()]
-    disabled = [str(p.name) for p in list_disabled_hooks()]
+def compute_status(paths):
+    diagnostics = []
+    conflicts = []
+    drift = []
+    residue = [item.name for item in interrupted_journals(paths)]
+    grok_exists = paths.grok_dir.exists()
+    grok_kind = classify_node(paths.grok_dir) if grok_exists or paths.grok_dir.is_symlink() else "missing"
+    if grok_kind in {"regular", "other"}:
+        return {
+            "state": STATE_CONFLICT,
+            "nodes": {"grok_dir": {"kind": grok_kind, "path": str(paths.grok_dir)}},
+            "compat": {"present": False, "matches_expected": False},
+            "hooks": {"active": [], "disabled": [], "owned_disabled": [], "external_disabled": []},
+            "manifest": None,
+            "backups": [],
+            "drift": [],
+            "conflicts": ["grok-dir is not a directory"],
+            "residue": residue,
+            "recovery_required": False,
+            "inspect": None,
+        }
+    if residue:
+        state = STATE_RECOVERY
     manifest = None
-    if MANIFEST_PATH.exists():
-        try:
-            manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            manifest = None
-    journals = [str(p.name) for p in find_interrupted_journals()]
-    deployable = grok_exists and not journals
-    return StatusReport(
-        grok_dir_exists=grok_exists,
-        rules_md=rules_fp,
-        config_toml=config_fp,
-        config_has_compat_block=has_compat,
-        active_hooks=active,
-        disabled_hooks=disabled,
-        manifest=manifest,
-        interrupted_journals=journals,
-        deployable=deployable,
-    )
-
-
-def print_status(status: StatusReport) -> int:
-    if not status.grok_dir_exists:
-        print(_tr("no_grok_dir"))
-        return 1
-    print(f"[{_tr('status')}] Grok 配置目录: {GROK_HOME}")
-    print()
-    print(f"  rules/{RULES_MD_FILENAME}: ", end="")
-    if status.rules_md.exists:
-        print(f"已部署 ({status.rules_md.size} bytes, sha256={status.rules_md.sha256[:12]}...)")
-    else:
-        print("未部署")
-    print(f"  config.toml: ", end="")
-    if status.config_toml.exists:
-        print(f"存在 ({status.config_toml.size} bytes)")
-    else:
-        print("缺失")
-    print(f"  compat 隔离块: {'已注入' if status.config_has_compat_block else '未注入'}")
-    print(f"  active hooks: {len(status.active_hooks)} 个")
-    for h in status.active_hooks:
-        print(f"    - {h}")
-    print(f"  disabled hooks: {len(status.disabled_hooks)} 个")
-    for h in status.disabled_hooks:
-        print(f"    - {h}")
-    print(f"  部署清单: ", end="")
-    if status.manifest:
-        print(f"存在 (deployment_id={status.manifest.get('deployment_id','?')})")
-    else:
-        print("未找到")
-    print(f"  中断事务日志: {len(status.interrupted_journals)} 个")
-    for j in status.interrupted_journals:
-        print(f"    - {j}")
-    print()
-    if status.interrupted_journals:
-        print(f"  可部署性: {_tr('not_deployable')} (存在中断事务,请先 --recover)")
-        return 1
-    print(f"  可部署性: {_tr('ready')}")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Deploy plan
-# ---------------------------------------------------------------------------
-
-@dataclass
-class DeployPlan:
-    prompt_source: str  # "bundled" | "custom:<path>"
-    prompt_content: str
-    prompt_sha256: str
-    prompt_name: str
-    rules_md_exists: bool = False
-    config_toml_exists: bool = False
-    config_toml_backup: Optional[Path] = None
-    config_will_change: bool = False
-    hooks_to_isolate: List[Path] = field(default_factory=list)
-    hooks_backups: List[Path] = field(default_factory=list)
-
-
-def build_plan(args: argparse.Namespace) -> DeployPlan:
-    # Resolve prompt source
-    if args.file:
-        custom_path = Path(args.file).expanduser().resolve()
-        if not custom_path.exists():
-            raise SystemExit(f"custom prompt file not found: {custom_path}")
-        prompt_content = custom_path.read_text(encoding="utf-8")
-        prompt_source = f"custom:{custom_path}"
-        prompt_name = args.name or custom_path.stem
-    else:
-        prompt_content = BUNDLED_PROMPT
-        prompt_source = "bundled"
-        prompt_name = args.name or "grok-unrestricted"
-
-    prompt_sha = sha256_bytes(prompt_content.encode("utf-8"))
-
-    # Instruction rules file
-    agents_exists = RULES_MD.exists() and RULES_MD.is_file()
-
-    # config.toml
-    config_exists = CONFIG_TOML.exists() and CONFIG_TOML.is_file()
-    config_content = CONFIG_TOML.read_text(encoding="utf-8") if config_exists else ""
-    new_config = config_add_compat_block(config_content) if config_exists else COMPAT_BLOCK.strip() + "\n"
-    config_will_change = (new_config != config_content)
-
-    # hooks
-    hooks = list_active_hooks()
-
-    return DeployPlan(
-        prompt_source=prompt_source,
-        prompt_content=prompt_content,
-        prompt_sha256=prompt_sha,
-        prompt_name=prompt_name,
-        rules_md_exists=agents_exists,
-        config_toml_exists=config_exists,
-        config_will_change=config_will_change,
-        hooks_to_isolate=hooks,
-    )
-
-
-def print_plan(plan: DeployPlan) -> None:
-    print(f"=== 部署计划 ===")
-    print(f"  提示词来源: {plan.prompt_source}")
-    print(f"  提示词名称: {plan.prompt_name}")
-    print(f"  提示词 SHA-256: {plan.prompt_sha256}")
-    print(f"  提示词大小: {len(plan.prompt_content.encode('utf-8'))} bytes")
-    print()
-    print(f"  目标规则文件: {RULES_MD}")
-    if plan.rules_md_exists:
-        print(f"    状态: 已存在,将创建时间戳备份后替换")
-    else:
-        print(f"    状态: 不存在,将新建")
-    print(f"  说明: 部署到 rules 目录,与 ~/.grok/AGENTS.md 及任何人物卡/agent 档案互不影响")
-    print()
-    print(f"  目标 config.toml: {CONFIG_TOML}")
-    if plan.config_toml_exists:
-        if plan.config_will_change:
-            print(f"    状态: 已存在,将备份并注入 compat 隔离块")
+    manifest_invalid = False
+    if paths.manifest.exists() or paths.manifest.is_symlink():
+        kind = classify_node(paths.manifest)
+        if kind != "regular":
+            conflicts.append("manifest node is %s" % kind)
+            manifest_invalid = True
         else:
-            print(f"    状态: 已存在且已含隔离块,无需修改")
-    else:
-        print(f"    状态: 不存在,将新建并注入 compat 隔离块")
-    print()
-    print(f"  hooks 隔离: {len(plan.hooks_to_isolate)} 个活跃 hook 将改名为 .disabled")
-    for h in plan.hooks_to_isolate:
-        print(f"    - {h.name} -> {h.name}.disabled")
-    print()
-    print(f"  manifest: {MANIFEST_PATH}")
-    print()
-    print(_tr("dry_run"))
-
-
-# ---------------------------------------------------------------------------
-# Execute deploy
-# ---------------------------------------------------------------------------
-
-def execute_deploy(plan: DeployPlan, args: argparse.Namespace) -> int:
-    deploy_id = deployment_id()
-
-    # 1. Write intent (immutable)
-    intent = {
-        "deployment_id": deploy_id,
-        "prompt_source": plan.prompt_source,
-        "prompt_sha256": plan.prompt_sha256,
-        "prompt_name": plan.prompt_name,
-        "agents_md_target": str(RULES_MD),
-        "config_toml_target": str(CONFIG_TOML),
-        "hooks_to_isolate": [str(h) for h in plan.hooks_to_isolate],
-        "actions": ["write_rules_md", "patch_config_toml", "isolate_hooks", "write_manifest"],
-    }
-    write_intent(deploy_id, intent)
-    write_journal(deploy_id, "intent_written", {"intent": intent})
-
-    backups: Dict[str, str] = {}
-
-    # 2. Backup + write rules file
-    if plan.rules_md_exists:
-        bpath = backup_file(RULES_MD)
-        if bpath:
-            backups["rules_md"] = str(bpath)
-    write_journal(deploy_id, "rules_md_backed_up", {"backups": backups})
-    atomic_write_text(RULES_MD, plan.prompt_content, mode=0o644)
-    write_journal(deploy_id, "rules_md_written", {"rules_md_sha256": plan.prompt_sha256})
-
-    # 3. Backup + patch config.toml
-    if plan.config_toml_exists:
-        bpath = backup_file(CONFIG_TOML)
-        if bpath:
-            backups["config_toml"] = str(bpath)
-        config_content = CONFIG_TOML.read_text(encoding="utf-8")
-        new_config = config_add_compat_block(config_content)
-    else:
-        new_config = COMPAT_BLOCK.strip() + "\n"
-    atomic_write_text(CONFIG_TOML, new_config, mode=0o644)
-    write_journal(deploy_id, "config_toml_patched", {"config_sha256": sha256_bytes(new_config.encode())})
-
-    # 4. Isolate hooks
-    isolated_hooks = []
-    if plan.hooks_to_isolate:
-        isolated = isolate_hooks()
-        for orig, dis in isolated:
-            isolated_hooks.append({"original": str(orig), "disabled": str(dis)})
-        write_journal(deploy_id, "hooks_isolated", {"hooks": isolated_hooks})
-
-    # 5. Write manifest
-    manifest = Manifest(
-        deployment_id=deploy_id,
-        deployed_at=now_iso(),
-        prompt_source=plan.prompt_source,
-        prompt_sha256=plan.prompt_sha256,
-        prompt_name=plan.prompt_name,
-        agents_md=asdict(FileFingerprint.of(RULES_MD)),
-        config_toml=asdict(FileFingerprint.of(CONFIG_TOML)),
-        hooks=isolated_hooks,
-        backups=backups,
-    )
-    # If existing manifest, archive it
-    if MANIFEST_PATH.exists():
-        ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-        prev_backup = MANIFEST_PATH.with_name(f"{MANIFEST_FILENAME}.archived-{ts}")
-        shutil.move(str(MANIFEST_PATH), str(prev_backup))
-        manifest.previous_manifest_backup = str(prev_backup)
-    atomic_write_text(MANIFEST_PATH, json.dumps(asdict(manifest), indent=2, ensure_ascii=False), mode=0o644)
-
-    # 6. Mark committed
-    write_journal(deploy_id, "committed", {"manifest_path": str(MANIFEST_PATH)})
-
-    # 7. Cleanup journal
-    cleanup_journal(journal_dir_for(deploy_id))
-
-    print(f"[{_tr('deployed')}] deployment_id={deploy_id}")
-    print(f"  rules: {RULES_MD}")
-    print(f"  config.toml: {CONFIG_TOML} (compat 隔离块已注入)")
-    print(f"  hooks: {len(isolated_hooks)} 个已隔离")
-    print(f"  manifest: {MANIFEST_PATH}")
-    print()
-    print(f"下一步: 开启新的 Grok 会话验证 (grok inspect 应显示 rules/{RULES_MD_FILENAME} enabled, Claude/Cursor compat [disabled])")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Uninstall
-# ---------------------------------------------------------------------------
-
-def execute_uninstall(args: argparse.Namespace) -> int:
-    if not MANIFEST_PATH.exists():
-        print(_tr("manifest_missing"))
-        return 1
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-
-    print(f"=== 卸载计划 ===")
-    print(f"  deployment_id: {manifest.get('deployment_id','?')}")
-    print(f"  prompt_name: {manifest.get('prompt_name','?')}")
-    print(f"  deployed_at: {manifest.get('deployed_at','?')}")
-    print()
-
-    # Plan
-    agents_md = manifest.get("agents_md", {})
-    config_toml = manifest.get("config_toml", {})
-    backups = manifest.get("backups", {})
-    hooks = manifest.get("hooks", [])
-
-    agents_md_path = Path(agents_md.get("path", RULES_MD)) if agents_md.get("path") else RULES_MD
-
-    # Ownership check: only delete the instruction file if its current
-    # content still matches what this deployment wrote. If the file was
-    # replaced later (e.g. a persona card now lives at AGENTS.md), leave
-    # it alone instead of destroying unrelated data.
-    recorded_sha = agents_md.get("sha256", "")
-    owns_file = False
-    if agents_md_path.exists():
-        current_sha = sha256_file(agents_md_path)
-        owns_file = (current_sha == recorded_sha) if recorded_sha else False
-        if not owns_file:
-            print(f"  指令文件内容已变更,不属于本次部署,将保留: {agents_md_path}")
-            print(f"    (部署时 sha256={recorded_sha[:12]}..., 当前 sha256={current_sha[:12]}...)")
-    print(f"  将删除指令文件: {agents_md_path} (存在: {agents_md.get('exists', False)}, 所有权: {'是' if owns_file else '否'})")
-    print(f"  将恢复 config.toml: 移除 compat 隔离块")
-    if backups.get("config_toml"):
-        print(f"    (备份可用: {backups['config_toml']})")
-    print(f"  将恢复 hooks: {len(hooks)} 个")
-    for h in hooks:
-        print(f"    {Path(h.get('disabled','')).name} -> {Path(h.get('original','')).name}")
-    print()
-
-    if not args.yes:
-        print(_tr("confirm_yes"))
-        return 0
-
-    # Execute
-    # 1. Remove the deployed instruction file if we still own it
-    #    (v0.1.x points at AGENTS.md, v0.2.x at rules/99-keysmith.md).
-    #    Ownership = current sha256 matches the manifest record.
-    removed_file = False
-    if owns_file and agents_md_path.exists():
-        agents_md_path.unlink()
-        removed_file = True
-
-    # 2. Restore config.toml (remove our compat block)
-    if CONFIG_TOML.exists():
-        content = CONFIG_TOML.read_text(encoding="utf-8")
-        new_content = config_remove_compat_block(content)
-        atomic_write_text(CONFIG_TOML, new_content, mode=0o644)
-
-    # 3. Restore hooks (rename .disabled back to .json)
-    restored = 0
-    for h in hooks:
-        disabled_path = Path(h.get("disabled", ""))
-        original_path = Path(h.get("original", ""))
-        if disabled_path.exists() and original_path:
-            if original_path.exists():
-                # Conflict, archive it
-                ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-                archive = original_path.with_name(f"{original_path.name}.uninstall-conflict-{ts}")
-                shutil.move(str(original_path), str(archive))
-            shutil.move(str(disabled_path), str(original_path))
-            restored += 1
-
-    # 4. Archive manifest
-    ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-    archive_path = MANIFEST_PATH.with_name(f"{MANIFEST_FILENAME}.uninstalled-{ts}")
-    shutil.move(str(MANIFEST_PATH), str(archive_path))
-
-    print(f"[{_tr('uninstalled')}]")
-    if removed_file:
-        print(f"  指令文件已删除: {agents_md_path}")
-    else:
-        print(f"  指令文件保留(内容已变更或非本工具部署): {agents_md_path}")
-    print(f"  config.toml compat 隔离块已移除")
-    print(f"  hooks 恢复: {restored} 个")
-    print(f"  manifest 归档: {archive_path}")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Restore hooks (standalone)
-# ---------------------------------------------------------------------------
-
-def execute_restore_hooks(args: argparse.Namespace) -> int:
-    disabled = list_disabled_hooks()
-    if not disabled:
-        print(_tr("nothing_to_restore"))
-        return 0
-    print(f"=== hooks 恢复计划 ===")
-    for d in disabled:
-        print(f"  {d.name} -> {d.with_suffix('').name}")
-    print()
-    if not args.yes:
-        print(_tr("confirm_yes"))
-        return 0
-    pairs = restore_hooks()
-    print(f"[{_tr('hooks_restored')}] {len(pairs)} 个 hooks 已恢复")
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Recover
-# ---------------------------------------------------------------------------
-
-def execute_recover(args: argparse.Namespace) -> int:
-    journals = find_interrupted_journals()
-    if not journals:
-        print(_tr("no_journal"))
-        return 0
-
-    print(f"=== 事务恢复 ===")
-    print(f"  发现 {len(journals)} 个中断的事务日志:")
-    for j in journals:
-        print(f"    - {j.name}")
-    print()
-
-    if not args.yes:
-        print(_tr("confirm_yes"))
-        return 0
-
-    for jdir in journals:
-        intent_path = jdir / INTENT_FILENAME
-        jpath = jdir / JOURNAL_FILENAME
-        if not intent_path.exists():
-            print(f"  {jdir.name}: 无 intent.json,跳过 (手动检查)")
-            continue
-        intent = json.loads(intent_path.read_text(encoding="utf-8"))
-        journal = {}
-        if jpath.exists():
-            journal = json.loads(jpath.read_text(encoding="utf-8"))
-        phase = journal.get("phase", "intent_written")
-
-        print(f"  {jdir.name}: phase={phase}")
-        print(f"    intent: prompt={intent.get('prompt_name','?')}, actions={intent.get('actions',[])}")
-
-        # Recovery strategy: if the transaction wrote the instruction file,
-        # remove it. If config was patched, unpatch. If hooks were isolated,
-        # restore them. Conservative: only roll back if phase < committed.
-        if phase == "committed":
-            print(f"    -> 事务已 committed,标记为 recovered 并清理")
-            write_journal(jdir.name.replace(JOURNAL_DIR_PREFIX, ""), "recovered", {})
-            cleanup_journal(jdir)
-            continue
-
-        # Roll back
-        agents_md_target = Path(intent.get("agents_md_target", RULES_MD))
-        config_target = Path(intent.get("config_toml_target", CONFIG_TOML))
-        hooks_to_restore = intent.get("hooks_to_isolate", [])
-
-        # The intent recorded original hook paths; after isolation they became .disabled
-        for hook_str in hooks_to_restore:
-            hook_path = Path(hook_str)
-            disabled = hook_path.with_suffix(".json.disabled")
-            if disabled.exists() and hook_path.exists() is False:
-                shutil.move(str(disabled), str(hook_path))
-                print(f"    恢复 hook: {disabled.name} -> {hook_path.name}")
-
-        # Unpatch config
-        if config_target.exists():
-            content = config_target.read_text(encoding="utf-8")
-            new_content = config_remove_compat_block(content)
-            if new_content != content:
-                atomic_write_text(config_target, new_content, mode=0o644)
-                print(f"    config.toml: 移除 compat 隔离块")
-
-        # Remove the instruction file if this transaction wrote it and the
-        # content is still ours (sha256 matches the prompt this transaction
-        # intended to write). If the file changed since, leave it alone.
-        if phase in ("rules_md_written", "agents_md_written", "config_toml_patched", "hooks_isolated") and agents_md_target.exists():
-            current_sha = sha256_file(agents_md_target)
-            expected_sha = intent.get("prompt_sha256", "")
-            if current_sha and current_sha == expected_sha:
-                agents_md_target.unlink()
-                print(f"    指令文件: 已删除 (事务未完成): {agents_md_target}")
+            loaded = load_manifest(paths)
+            if loaded and loaded.get("invalid"):
+                conflicts.append("manifest is not valid JSON")
+                manifest_invalid = True
             else:
-                print(f"    指令文件: 保留 (内容已变更,不属于本事务): {agents_md_target}")
+                manifest = loaded
 
-        # Mark recovered and cleanup
-        deploy_id = jdir.name.replace(JOURNAL_DIR_PREFIX, "")
-        write_journal(deploy_id, "recovered", {})
+    rule = _rule_node(paths)
+    config_kind = classify_node(paths.config)
+    config_fp = fingerprint_path(paths.config) if config_kind == "regular" else None
+    config_text = paths.config.read_text(encoding="utf-8") if config_kind == "regular" else ""
+    has_compat = config_has_compat_block(config_text) if config_kind == "regular" else False
+    expected_compat = compat_block_wrapped()
+    matches_expected = has_compat and expected_compat.strip() in config_text
+
+    if rule["kind"] not in {"regular", "missing"}:
+        conflicts.append("rule node is %s" % rule["kind"])
+    if config_kind not in {"regular", "missing"}:
+        conflicts.append("config node is %s" % config_kind)
+
+    active = [p.name for p in list_json_files(paths.hooks_dir, disabled=False)]
+    disabled = [p.name for p in list_json_files(paths.hooks_dir, disabled=True)]
+    owned_disabled = []
+    external_disabled = list(disabled)
+    if manifest and not manifest.get("invalid"):
+        owned_names = []
+        for item in manifest["layer"]["hooks"]["owned"]:
+            disabled_name = Path(item.get("disabled") or "").name
+            if disabled_name:
+                owned_names.append(disabled_name)
+        owned_disabled = [name for name in disabled if name in owned_names]
+        external_disabled = [name for name in disabled if name not in owned_names]
+        for item in manifest["layer"]["hooks"]["owned"]:
+            original = Path(item.get("original") or "")
+            disabled_path = Path(item.get("disabled") or "")
+            if original.name and (paths.hooks_dir / original.name).exists() and (
+                paths.hooks_dir / disabled_path.name
+            ).exists():
+                conflicts.append("owned hook present as both active and disabled: %s" % original.name)
+
+    backups = []
+    if grok_exists:
+        for item in sorted(paths.grok_dir.glob("*.keysmith-backup-*")):
+            backups.append(item.name)
+        if paths.rules_dir.exists():
+            for item in sorted(paths.rules_dir.glob("*.keysmith-backup-*")):
+                backups.append("rules/" + item.name)
+
+    state = STATE_NOT_INSTALLED
+    if residue:
+        state = STATE_RECOVERY
+    elif conflicts or manifest_invalid:
+        state = STATE_CONFLICT
+    elif manifest:
+        layer = manifest["layer"]
+        rule_after = layer["rule"].get("after")
+        config_after = layer["config"].get("after")
+        rule_ok = fingerprints_match(rule["fingerprint"], rule_after) if rule_after else False
+        if rule["kind"] == "missing" or not has_compat:
+            if rule["kind"] == "regular" and rule_after and not rule_ok:
+                state = STATE_DRIFT
+                drift.append("rule content does not match managed after-state")
+            else:
+                state = STATE_INACTIVE
+        elif rule_after and not rule_ok:
+            state = STATE_DRIFT
+            drift.append("rule content does not match managed after-state")
+        elif config_after and config_fp and not fingerprints_match(config_fp, config_after) and has_compat:
+            # config can change outside the compat block; if markers remain but
+            # hash drifted, classify as drift when the whole file hash differs.
+            if not matches_expected:
+                state = STATE_DRIFT
+                drift.append("config.toml does not match managed after-state")
+            else:
+                state = STATE_ACTIVE_ALIGNED
+        else:
+            state = STATE_ACTIVE_ALIGNED
+        if state == STATE_ACTIVE_ALIGNED and not matches_expected:
+            state = STATE_INACTIVE
+    elif rule["kind"] not in {"regular", "missing"}:
+        state = STATE_CONFLICT
+
+    exit_code = 0
+    if state in {STATE_DRIFT, STATE_CONFLICT, STATE_RECOVERY}:
+        exit_code = 1
+    return {
+        "state": state,
+        "nodes": {
+            "grok_dir": {"kind": grok_kind, "path": str(paths.grok_dir)},
+            "rule": rule,
+            "config": {"kind": config_kind, "path": str(paths.config), "fingerprint": config_fp},
+            "manifest": {
+                "kind": classify_node(paths.manifest),
+                "path": str(paths.manifest),
+            },
+            "hooks_dir": {
+                "kind": classify_node(paths.hooks_dir),
+                "path": str(paths.hooks_dir),
+            },
+        },
+        "compat": {
+            "present": has_compat,
+            "matches_expected": matches_expected,
+        },
+        "hooks": {
+            "active": active,
+            "disabled": disabled,
+            "owned_disabled": owned_disabled,
+            "external_disabled": external_disabled,
+        },
+        "manifest": None if not manifest or manifest.get("invalid") else {
+            "schema_version": manifest.get("schema_version"),
+            "deployment_id": manifest.get("deployment_id"),
+            "version": manifest.get("version"),
+            "prompt_name": manifest.get("prompt_name"),
+            "prompt_sha256": manifest.get("prompt_sha256"),
+            "created_at": manifest.get("created_at"),
+            "legacy": bool(manifest.get("legacy")),
+        },
+        "backups": backups,
+        "drift": drift,
+        "conflicts": conflicts,
+        "residue": residue,
+        "recovery_required": state == STATE_RECOVERY,
+        "inspect": None,
+        "exit_code": exit_code,
+        "diagnostics": diagnostics + conflicts + drift,
+    }
+
+
+def human_status(status, paths):
+    lines = []
+    lines.append("[status] Grok config dir: %s" % paths.grok_dir)
+    lines.append("  state: %s" % status["state"])
+    rule = status["nodes"]["rule"]
+    if rule["kind"] == "regular" and rule["fingerprint"]:
+        lines.append(
+            "  rules/%s: deployed (%s bytes, sha256=%s...)"
+            % (RULES_MD_FILENAME, rule["fingerprint"]["size"], rule["fingerprint"]["sha256"][:12])
+        )
+    else:
+        lines.append("  rules/%s: %s" % (RULES_MD_FILENAME, rule["kind"]))
+    lines.append("  config.toml: %s" % status["nodes"]["config"]["kind"])
+    lines.append("  compat isolation: %s" % ("present" if status["compat"]["present"] else "absent"))
+    lines.append("  active hooks: %s" % len(status["hooks"]["active"]))
+    lines.append("  disabled hooks: %s" % len(status["hooks"]["disabled"]))
+    if status["manifest"]:
+        lines.append("  manifest: present (deployment_id=%s)" % status["manifest"].get("deployment_id"))
+    else:
+        lines.append("  manifest: missing")
+    lines.append("  interrupted journals: %s" % len(status["residue"]))
+    for item in status["residue"]:
+        lines.append("    - %s" % item)
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Deploy plan / execute
+# ---------------------------------------------------------------------------
+
+def resolve_prompt(args):
+    if args.file:
+        custom = Path(args.file).expanduser()
+        if not custom.is_absolute():
+            custom = custom.resolve()
+        else:
+            custom = custom.resolve()
+        if not custom.is_file():
+            raise KeysmithError("custom prompt file not found: %s" % custom)
+        content = custom.read_text(encoding="utf-8")
+        return content, "custom:%s" % custom, args.name or custom.stem
+    return BUNDLED_PROMPT, "bundled", args.name or "grok-unrestricted"
+
+
+def build_deploy_plan(paths, args):
+    content, source, name = resolve_prompt(args)
+    prompt_sha = sha256_bytes(content.encode("utf-8"))
+    config_exists = paths.config.is_file() and not paths.config.is_symlink()
+    config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
+    new_config, stripped = config_add_compat_block(config_text)
+    rule_kind = classify_node(paths.rule)
+    config_kind = classify_node(paths.config)
+    hooks = list_json_files(paths.hooks_dir, disabled=False)
+    external_disabled = [p.name for p in list_json_files(paths.hooks_dir, disabled=True)]
+    blockers = []
+    if rule_kind not in {"regular", "missing"}:
+        blockers.append("rule node is %s" % rule_kind)
+    if config_kind not in {"regular", "missing"}:
+        blockers.append("config node is %s" % config_kind)
+    if interrupted_journals(paths):
+        blockers.append("interrupted transaction present; run --recover first")
+    return {
+        "prompt_source": source,
+        "prompt_name": name,
+        "prompt_sha256": prompt_sha,
+        "prompt_bytes": len(content.encode("utf-8")),
+        "prompt_content": content,
+        "rule": {
+            "path": str(paths.rule),
+            "kind": rule_kind,
+            "exists": rule_kind == "regular",
+        },
+        "config": {
+            "path": str(paths.config),
+            "kind": config_kind,
+            "exists": config_exists,
+            "will_change": new_config != config_text,
+            "will_write_markers": True,
+            "new_content": new_config,
+            "stripped_external_compat": stripped,
+        },
+        "hooks_to_isolate": [str(item) for item in hooks],
+        "external_disabled_untouched": external_disabled,
+        "blockers": blockers,
+    }
+
+
+def human_plan(plan, paths):
+    lines = ["=== deploy plan ==="]
+    lines.append("  prompt source: %s" % plan["prompt_source"])
+    lines.append("  prompt name: %s" % plan["prompt_name"])
+    lines.append("  prompt SHA-256: %s" % plan["prompt_sha256"])
+    lines.append("  target rule: %s" % plan["rule"]["path"])
+    lines.append("  target config: %s" % plan["config"]["path"])
+    if plan["config"]["stripped_external_compat"]:
+        lines.append(
+            "  strip external compat: %s" % ", ".join(plan["config"]["stripped_external_compat"])
+        )
+    lines.append("  hooks to isolate: %s" % len(plan["hooks_to_isolate"]))
+    for item in plan["hooks_to_isolate"]:
+        lines.append("    - %s -> %s.disabled" % (Path(item).name, Path(item).name))
+    lines.append("  external .disabled left untouched: %s" % len(plan["external_disabled_untouched"]))
+    for item in plan["external_disabled_untouched"]:
+        lines.append("    - %s" % item)
+    lines.append("  manifest: %s" % paths.manifest)
+    if plan["blockers"]:
+        lines.append("  blockers:")
+        for item in plan["blockers"]:
+            lines.append("    - %s" % item)
+    else:
+        lines.append("[dry-run] no files written; add --yes to apply")
+    return lines
+
+
+def _journal_base(paths, txid, operation, plan, before):
+    return {
+        "schema_version": JOURNAL_SCHEMA_VERSION,
+        "deployment_id": txid,
+        "operation": operation,
+        "phase": "lock_acquired",
+        "updated_at": now_iso(),
+        "target": {"grok_dir": str(paths.grok_dir), "identity": dir_identity(paths.grok_dir)},
+        "before": before,
+        "backups": {},
+        "owned_hooks": [],
+        "prompt_sha256": plan.get("prompt_sha256") if plan else "",
+        "after_expected": {},
+    }
+
+
+def execute_deploy(paths, plan):
+    txid = new_txid()
+    lock = WriteLock(paths)
+    lock.acquire()
+    try:
+        paths.grok_dir.mkdir(parents=True, exist_ok=True)
+        jdir = journal_dir_for(paths, txid)
+        jdir.mkdir(parents=True, exist_ok=True)
+        before = {
+            "rule": fingerprint_path(paths.rule),
+            "config": fingerprint_path(paths.config),
+            "manifest": fingerprint_path(paths.manifest),
+            "hooks": [
+                {
+                    "original": str(item),
+                    "fingerprint": fingerprint_path(item),
+                }
+                for item in list_json_files(paths.hooks_dir, disabled=False)
+            ],
+        }
+        journal = _journal_base(paths, txid, "deploy", plan, before)
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_lock")
+
+        intent = {
+            "schema_version": JOURNAL_SCHEMA_VERSION,
+            "deployment_id": txid,
+            "operation": "deploy",
+            "written_at": now_iso(),
+            "tool": TOOL_NAME,
+            "version": VERSION,
+            "target": str(paths.grok_dir),
+            "prompt_source": plan["prompt_source"],
+            "prompt_name": plan["prompt_name"],
+            "prompt_sha256": plan["prompt_sha256"],
+            "rule_target": str(paths.rule),
+            "config_target": str(paths.config),
+            "hooks_to_isolate": plan["hooks_to_isolate"],
+            "before": before,
+        }
+        write_intent(jdir, intent, txid)
+        journal["phase"] = "intent_written"
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_intent")
+
+        backups = {}
+        if paths.rule.is_file() and not paths.rule.is_symlink():
+            bpath = backup_file(paths.rule, paths.grok_dir, txid=txid)
+            if bpath:
+                backups["rule"] = str(bpath)
+        journal["backups"] = dict(backups)
+        journal["phase"] = "backups_created"
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_backup_rule")
+
+        if paths.config.is_file() and not paths.config.is_symlink():
+            bpath = backup_file(paths.config, paths.grok_dir, txid=txid)
+            if bpath:
+                backups["config"] = str(bpath)
+        journal["backups"] = dict(backups)
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_backup_config")
+
+        if classify_node(paths.rule) not in {"regular", "missing"}:
+            raise KeysmithError("refusing to overwrite abnormal rule node")
+        atomic_write_text(paths.rule, plan["prompt_content"], txid=txid)
+        journal["phase"] = "rule_written"
+        journal["after_expected"]["rule"] = fingerprint_path(paths.rule)
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_write_rule")
+
+        if classify_node(paths.config) not in {"regular", "missing"}:
+            raise KeysmithError("refusing to overwrite abnormal config node")
+        atomic_write_text(paths.config, plan["config"]["new_content"], txid=txid)
+        journal["phase"] = "config_patched"
+        journal["after_expected"]["config"] = fingerprint_path(paths.config)
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_write_config")
+
+        owned_hooks = []
+        for hook in list_json_files(paths.hooks_dir, disabled=False):
+            disabled = hook.with_name(hook.name + ".disabled")
+            if disabled.exists():
+                archive = unique_backup_path(disabled, paths.hooks_dir)
+                shutil.move(str(disabled), str(archive))
+            before_fp = fingerprint_path(hook)
+            shutil.move(str(hook), str(disabled))
+            owned_hooks.append(
+                {
+                    "original": hook_rel(paths, hook),
+                    "disabled": hook_rel(paths, disabled),
+                    "before": before_fp,
+                    "after": fingerprint_path(disabled),
+                    "backup": None,
+                }
+            )
+        journal["owned_hooks"] = owned_hooks
+        journal["phase"] = "hooks_isolated"
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_isolate_hooks")
+
+        previous_backup = None
+        previous_layer = None
+        existing = load_manifest(paths)
+        if existing and not existing.get("invalid"):
+            if paths.manifest.is_file():
+                previous_backup_path = unique_backup_path(paths.manifest, paths.grok_dir)
+                shutil.copy2(str(paths.manifest), str(previous_backup_path))
+                previous_backup = str(previous_backup_path)
+                backups["manifest"] = previous_backup
+            previous_layer = {
+                "deployment_id": existing.get("deployment_id"),
+                "backup": previous_backup,
+            }
+
+        manifest = {
+            "schema_version": MANIFEST_SCHEMA_VERSION,
+            "tool": TOOL_NAME,
+            "version": VERSION,
+            "deployment_id": txid,
+            "created_at": now_iso(),
+            "prompt_source": plan["prompt_source"],
+            "prompt_name": plan["prompt_name"],
+            "prompt_sha256": plan["prompt_sha256"],
+            "layer": {
+                "rule": {
+                    "path": hook_rel(paths, paths.rule),
+                    "before": before["rule"],
+                    "after": fingerprint_path(paths.rule),
+                    "backup": backups.get("rule"),
+                },
+                "config": {
+                    "path": hook_rel(paths, paths.config),
+                    "before": before["config"],
+                    "after": fingerprint_path(paths.config),
+                    "backup": backups.get("config"),
+                    "compat_block": True,
+                    "stripped_external_compat": plan["config"]["stripped_external_compat"],
+                },
+                "hooks": {
+                    "owned": owned_hooks,
+                    "external_disabled_untouched": [
+                        "hooks/%s" % name for name in plan["external_disabled_untouched"]
+                    ],
+                },
+                "previous_manifest": {
+                    "before": before["manifest"],
+                    "backup": previous_backup,
+                },
+            },
+            "previous_layer": previous_layer,
+        }
+        write_json(paths.manifest, manifest, txid=txid)
+        journal["phase"] = "manifest_written"
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_write_manifest")
+
+        journal["phase"] = "committed"
+        journal["updated_at"] = now_iso()
+        write_journal(jdir, journal, txid)
+        _checkpoint("after_commit")
         cleanup_journal(jdir)
-        print(f"    -> 已恢复并清理")
-
-    print(f"[{_tr('recovered')}]")
-    return 0
+        return {
+            "deployment_id": txid,
+            "rule": str(paths.rule),
+            "config": str(paths.config),
+            "hooks_isolated": len(owned_hooks),
+            "manifest": str(paths.manifest),
+        }
+    finally:
+        lock.release()
 
 
 # ---------------------------------------------------------------------------
-# Main / argparse
+# Restore helpers
 # ---------------------------------------------------------------------------
 
-def build_argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+def _restore_file_from_backup(current, backup, before_fp, after_fp):
+    current = Path(current)
+    if before_fp is None:
+        kind = classify_node(current)
+        if kind == "missing":
+            return "absent"
+        if kind != "regular":
+            raise KeysmithError("abnormal node during restore: %s" % current)
+        current_fp = fingerprint_path(current)
+        if after_fp and current_fp and not fingerprints_match(current_fp, after_fp):
+            raise KeysmithError(
+                "refusing to delete drifted file during restore: %s" % current,
+                diagnostics=["drift on %s" % current],
+            )
+        current.unlink()
+        return "deleted"
+    backup_path = Path(backup) if backup else None
+    if backup_path is None or not backup_path.is_file():
+        raise KeysmithError(
+            "missing verified backup for %s" % current,
+            diagnostics=["missing backup for %s" % current],
+        )
+    backup_fp = fingerprint_path(backup_path)
+    if before_fp and not fingerprints_match(backup_fp, before_fp):
+        raise KeysmithError(
+            "backup failed integrity check for %s" % current,
+            diagnostics=["backup integrity failure for %s" % current],
+        )
+    if current.exists() and classify_node(current) == "regular" and after_fp:
+        current_fp = fingerprint_path(current)
+        if current_fp and not fingerprints_match(current_fp, after_fp) and not fingerprints_match(
+            current_fp, before_fp
+        ):
+            raise KeysmithError(
+                "current file drifted; fail closed: %s" % current,
+                diagnostics=["drift on %s" % current],
+            )
+    data = backup_path.read_bytes()
+    atomic_write_bytes(current, data)
+    return "restored"
+
+
+def _restore_owned_hooks(paths, owned, expect_disabled=True):
+    restored = []
+    for item in owned:
+        original = Path(item.get("original") or "")
+        disabled = Path(item.get("disabled") or "")
+        if not original.is_absolute():
+            original = paths.grok_dir / original
+        if not disabled.is_absolute():
+            disabled = paths.grok_dir / disabled
+        if expect_disabled:
+            if not disabled.exists():
+                if original.exists():
+                    restored.append(str(original))
+                    continue
+                raise KeysmithError(
+                    "owned hook missing during restore: %s" % disabled,
+                    diagnostics=["missing owned hook %s" % disabled],
+                )
+            if original.exists():
+                raise KeysmithError(
+                    "owned hook conflict (active and disabled): %s" % original,
+                    diagnostics=["hook conflict %s" % original.name],
+                )
+            shutil.move(str(disabled), str(original))
+            restored.append(str(original))
+        else:
+            if disabled.exists() and not original.exists():
+                shutil.move(str(disabled), str(original))
+                restored.append(str(original))
+    return restored
+
+
+def recover_one(paths, jdir):
+    journal_path = jdir / JOURNAL_FILENAME
+    intent_path = jdir / INTENT_FILENAME
+    if not intent_path.exists() and not journal_path.exists():
+        cleanup_journal(jdir)
+        return "cleaned-empty"
+    journal = {}
+    if journal_path.is_file():
+        try:
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        except Exception:
+            raise KeysmithError("journal is not valid JSON: %s" % journal_path)
+    phase = journal.get("phase") or "lock_acquired"
+    if phase == "committed":
+        cleanup_journal(jdir)
+        return "committed-cleanup"
+    before = journal.get("before") or {}
+    backups = journal.get("backups") or {}
+    after_expected = journal.get("after_expected") or {}
+    mutated_rule = phase in {
+        "rule_written",
+        "config_patched",
+        "hooks_isolated",
+        "manifest_written",
+    }
+    mutated_config = phase in {"config_patched", "hooks_isolated", "manifest_written"}
+    mutated_hooks = phase in {"hooks_isolated", "manifest_written"}
+    mutated_manifest = phase == "manifest_written"
+    if mutated_rule:
+        _restore_file_from_backup(
+            paths.rule,
+            backups.get("rule"),
+            before.get("rule"),
+            after_expected.get("rule"),
+        )
+    if mutated_config:
+        _restore_file_from_backup(
+            paths.config,
+            backups.get("config"),
+            before.get("config"),
+            after_expected.get("config"),
+        )
+    if mutated_hooks:
+        _restore_owned_hooks(paths, journal.get("owned_hooks") or [], expect_disabled=True)
+    if mutated_manifest:
+        prev = backups.get("manifest")
+        if prev and Path(prev).is_file():
+            atomic_write_bytes(paths.manifest, Path(prev).read_bytes())
+        elif paths.manifest.exists():
+            if before.get("manifest") is None:
+                paths.manifest.unlink()
+            else:
+                raise KeysmithError("cannot restore previous manifest")
+    cleanup_journal(jdir)
+    return phase
+
+
+def execute_recover(paths):
+    journals = interrupted_journals(paths)
+    # committed leftover (after_commit) is a journal with phase committed
+    extras = []
+    for entry in journal_dirs(paths):
+        jpath = entry / JOURNAL_FILENAME
+        if jpath.is_file():
+            try:
+                data = json.loads(jpath.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("phase") == "committed":
+                extras.append(entry)
+    seen = {str(item) for item in journals}
+    for item in extras:
+        if str(item) not in seen:
+            journals.append(item)
+    if not journals:
+        return {"recovered": 0, "phases": []}
+    lock = WriteLock(paths)
+    lock.acquire()
+    try:
+        phases = []
+        for jdir in journals:
+            phases.append({"journal": jdir.name, "phase": recover_one(paths, jdir)})
+        return {"recovered": len(phases), "phases": phases}
+    finally:
+        lock.release()
+
+
+def _current_matches_after(path, after_fp):
+    if after_fp is None:
+        return not Path(path).exists()
+    if classify_node(path) != "regular":
+        return False
+    return fingerprints_match(fingerprint_path(path), after_fp)
+
+
+def execute_uninstall(paths):
+    manifest = load_manifest(paths)
+    if not manifest or manifest.get("invalid"):
+        raise KeysmithError("no deployment manifest")
+    layer = manifest["layer"]
+    rule_path = Path(layer["rule"]["path"])
+    if not rule_path.is_absolute():
+        rule_path = paths.grok_dir / rule_path
+    config_path = Path(layer["config"]["path"])
+    if not config_path.is_absolute():
+        config_path = paths.grok_dir / config_path
+    drift = []
+    if layer["rule"]["after"] and not _current_matches_after(rule_path, layer["rule"]["after"]):
+        drift.append("rule drifted from managed after-state")
+    if layer["config"]["after"] and classify_node(config_path) == "regular":
+        if not _current_matches_after(config_path, layer["config"]["after"]):
+            # allow marker-only equality for legacy where after hash may be the
+            # whole file at deploy time; if markers still match expected and
+            # backup exists, still fail closed when hashes differ.
+            drift.append("config drifted from managed after-state")
+    if drift:
+        raise KeysmithError(
+            "uninstall fail closed: " + "; ".join(drift),
+            diagnostics=drift,
+        )
+    lock = WriteLock(paths)
+    lock.acquire()
+    try:
+        _restore_file_from_backup(
+            rule_path,
+            layer["rule"].get("backup"),
+            layer["rule"].get("before"),
+            layer["rule"].get("after"),
+        )
+        if layer["config"].get("backup") and Path(layer["config"]["backup"]).is_file():
+            _restore_file_from_backup(
+                config_path,
+                layer["config"].get("backup"),
+                layer["config"].get("before") or fingerprint_path(layer["config"]["backup"]),
+                layer["config"].get("after"),
+            )
+        elif config_path.is_file():
+            text = config_path.read_text(encoding="utf-8")
+            atomic_write_text(config_path, config_remove_compat_block(text))
+        _restore_owned_hooks(paths, layer["hooks"].get("owned") or [], expect_disabled=True)
+        previous = (layer.get("previous_manifest") or {}).get("backup") or (
+            (manifest.get("previous_layer") or {}).get("backup")
+        )
+        ts = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+        archive = paths.manifest.with_name(
+            "%s.uninstalled-%s-%s" % (MANIFEST_FILENAME, ts, uuid.uuid4().hex[:8])
+        )
+        if paths.manifest.exists():
+            shutil.move(str(paths.manifest), str(archive))
+        if previous and Path(previous).is_file():
+            shutil.copy2(str(previous), str(paths.manifest))
+        return {
+            "archived_manifest": str(archive),
+            "restored_previous": bool(previous and Path(previous).is_file()),
+            "deployment_id": manifest.get("deployment_id"),
+        }
+    finally:
+        lock.release()
+
+
+def execute_restore_hooks(paths):
+    manifest = load_manifest(paths)
+    if not manifest or manifest.get("invalid"):
+        raise KeysmithError("no deployment manifest; refusing to restore unowned hooks")
+    owned = manifest["layer"]["hooks"].get("owned") or []
+    if not owned:
+        return {"restored": 0}
+    lock = WriteLock(paths)
+    lock.acquire()
+    try:
+        restored = _restore_owned_hooks(paths, owned, expect_disabled=True)
+        return {"restored": len(restored), "hooks": restored}
+    finally:
+        lock.release()
+
+
+# ---------------------------------------------------------------------------
+# Argparse / main
+# ---------------------------------------------------------------------------
+
+def build_argparser():
+    parser = argparse.ArgumentParser(
         prog="grok-keysmith",
         description="Versioned Grok Build instruction deployment with preview, isolation, and recovery.",
     )
-    p.add_argument("--version", action="store_true", help="Print version and exit")
-    p.add_argument("--status", action="store_true", help="Read-only status check")
-    p.add_argument("--dry-run", action="store_true", help="Preview deployment plan without writing")
-    p.add_argument("--yes", action="store_true", help="Confirm write operations")
-    p.add_argument("--uninstall", action="store_true", help="Uninstall latest deployment layer")
-    p.add_argument("--restore-hooks", action="store_true", help="Restore disabled hooks")
-    p.add_argument("--recover", action="store_true", help="Recover interrupted transactions")
-    p.add_argument("--file", metavar="PATH", help="Custom prompt file (default: bundled)")
-    p.add_argument("--name", metavar="NAME", help="Prompt name (default: grok-unrestricted)")
-    p.add_argument("--lang", choices=["auto", "zh-CN", "en"], default="zh-CN", help="Output language")
-    return p
+    parser.add_argument("--version", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--grok-dir", dest="grok_dir", metavar="PATH")
+    parser.add_argument("--lang", choices=["auto", "zh-CN", "en"], default="zh-CN")
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument("--restore-hooks", action="store_true", dest="restore_hooks")
+    parser.add_argument("--recover", action="store_true")
+    parser.add_argument("--file", metavar="PATH")
+    parser.add_argument("--name", metavar="NAME")
+    sub = parser.add_subparsers(dest="command")
+    run_p = sub.add_parser("run", help="Run a single prompt through Grok")
+    run_p.add_argument("--mode", choices=["default", "override"], default="default")
+    run_p.add_argument("--contract-path", dest="contract_path")
+    run_p.add_argument("--grok-bin", dest="grok_bin")
+    run_p.add_argument("--model")
+    run_p.add_argument("--reasoning-effort", dest="reasoning_effort")
+    run_p.add_argument("--cwd")
+    run_p.add_argument("--timeout", type=float, default=180.0)
+    run_p.add_argument("--output-format", dest="output_format", default="plain")
+    run_p.add_argument("--prompt")
+    run_p.add_argument("--prompt-file", dest="prompt_file")
+    run_p.add_argument("--save-output", dest="save_output")
+    run_p.add_argument("--max-output-bytes", dest="max_output_bytes", type=int, default=2 * 1024 * 1024)
+    bt = sub.add_parser("breaktest", help="Run the productized prompt-bank harness")
+    bt.add_argument("--bank", default="prompts.txt")
+    bt.add_argument("--mode", choices=["default", "override", "ab"], default="default")
+    bt.add_argument("--repetitions", type=int, default=1)
+    bt.add_argument("--timeout", type=float, default=180.0)
+    bt.add_argument("--interval", type=float, default=0.0)
+    bt.add_argument("--concurrency", type=int, default=1)
+    bt.add_argument("--model")
+    bt.add_argument("--output-dir", dest="output_dir", required=False)
+    bt.add_argument("--contract-path", dest="contract_path")
+    bt.add_argument("--grok-bin", dest="grok_bin")
+    bt.add_argument("--resume", action="store_true")
+    bt.add_argument("--retry-failed", action="store_true")
+    return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _set_lang(value):
     global LANG
-    args = build_argparser().parse_args(argv)
-
-    # Resolve language
-    if args.lang == "auto":
-        env_lang = os.environ.get("LANG", "") + " " + os.environ.get("LC_ALL", "")
-        LANG = "en" if env_lang.startswith("en") else "zh-CN"
+    if value == "auto":
+        env_lang = (os.environ.get("LANG") or "") + " " + (os.environ.get("LC_ALL") or "")
+        LANG = "en" if env_lang.lower().startswith("en") else "zh-CN"
     else:
-        LANG = args.lang
+        LANG = value
+
+
+def _validate_modes(args):
+    ops = [bool(args.status), bool(args.uninstall), bool(args.restore_hooks), bool(args.recover)]
+    if sum(ops) > 1:
+        raise KeysmithError(
+            "status, uninstall, restore-hooks, and recover are mutually exclusive",
+            exit_code=2,
+        )
+    if args.dry_run and args.yes:
+        raise KeysmithError(
+            "preview and apply are mutually exclusive (--dry-run cannot be combined with --yes)",
+            exit_code=2,
+        )
+    if args.status and (args.yes or args.dry_run or args.file or args.name):
+        raise KeysmithError("--status is read-only", exit_code=2)
+    if args.file and (args.uninstall or args.restore_hooks or args.recover or args.status):
+        raise KeysmithError("--file is only valid for deploy", exit_code=2)
+
+
+def cmd_status(paths, as_json):
+    status = compute_status(paths)
+    return emit_envelope(
+        "status",
+        True,
+        False,
+        True,
+        paths.as_target(),
+        None,
+        status,
+        status.get("diagnostics") or [],
+        status.get("exit_code") or 0,
+        as_json,
+        human_status(status, paths),
+    )
+
+
+def main(argv=None):
+    parser = build_argparser()
+    args = parser.parse_args(argv)
+    _set_lang(args.lang)
+    as_json = bool(getattr(args, "json", False))
+
+    if args.command == "run":
+        from grok_keysmith_runner import runner_main
+
+        return runner_main(args)
+    if args.command == "breaktest":
+        from grok_keysmith_breaktest import breaktest_main
+
+        return breaktest_main(args)
 
     if args.version:
-        print(f"{TOOL_NAME} {VERSION}")
-        print(f"bundled prompt SHA-256: {BUNDLED_PROMPT_SHA256}")
+        if as_json:
+            return emit_envelope(
+                "version",
+                True,
+                False,
+                True,
+                {},
+                None,
+                {
+                    "tool": TOOL_NAME,
+                    "version": VERSION,
+                    "bundled_prompt_sha256": BUNDLED_PROMPT_SHA256,
+                },
+                [],
+                0,
+                True,
+                [],
+            )
+        sys.stdout.write("%s %s\n" % (TOOL_NAME, VERSION))
+        sys.stdout.write("bundled prompt SHA-256: %s\n" % BUNDLED_PROMPT_SHA256)
         return 0
 
-    if args.status:
-        return print_status(compute_status())
+    try:
+        _validate_modes(args)
+        paths = bind_grok_dir(args.grok_dir)
+    except KeysmithError as error:
+        return emit_envelope(
+            "status" if args.status else "deploy",
+            False,
+            False,
+            False,
+            {"grok_dir": args.grok_dir} if args.grok_dir else {},
+            None,
+            None,
+            error.diagnostics,
+            error.exit_code,
+            as_json,
+            error.diagnostics,
+        )
 
-    if args.recover:
-        return execute_recover(args)
+    try:
+        if args.status:
+            return cmd_status(paths, as_json)
+        if args.recover:
+            preview = not args.yes
+            journals = [item.name for item in interrupted_journals(paths)]
+            # include committed leftovers in preview
+            for entry in journal_dirs(paths):
+                if entry.name not in journals:
+                    journals.append(entry.name)
+            plan = {"journals": journals}
+            if preview:
+                return emit_envelope(
+                    "recover",
+                    True,
+                    False,
+                    True,
+                    paths.as_target(),
+                    plan,
+                    None,
+                    [],
+                    0,
+                    as_json,
+                    ["recover preview: %s journal(s)" % len(journals)],
+                )
+            result = execute_recover(paths)
+            return emit_envelope(
+                "recover",
+                False,
+                True,
+                True,
+                paths.as_target(),
+                plan,
+                result,
+                [],
+                0,
+                as_json,
+                ["transaction recovered"],
+            )
+        if args.restore_hooks:
+            preview = not args.yes
+            manifest = load_manifest(paths)
+            owned = []
+            if manifest and not manifest.get("invalid"):
+                owned = manifest["layer"]["hooks"].get("owned") or []
+            plan = {"owned_hooks": owned}
+            if preview:
+                return emit_envelope(
+                    "restore_hooks",
+                    True,
+                    False,
+                    True,
+                    paths.as_target(),
+                    plan,
+                    None,
+                    [],
+                    0,
+                    as_json,
+                    ["restore-hooks preview: %s owned hook(s)" % len(owned)],
+                )
+            result = execute_restore_hooks(paths)
+            return emit_envelope(
+                "restore_hooks",
+                False,
+                True,
+                True,
+                paths.as_target(),
+                plan,
+                result,
+                [],
+                0,
+                as_json,
+                ["hooks restored"],
+            )
+        if args.uninstall:
+            preview = not args.yes
+            manifest = load_manifest(paths)
+            plan = {"manifest": None if not manifest else {
+                "deployment_id": manifest.get("deployment_id"),
+                "prompt_name": manifest.get("prompt_name"),
+            }}
+            if preview:
+                if not manifest or manifest.get("invalid"):
+                    raise KeysmithError("no deployment manifest")
+                return emit_envelope(
+                    "uninstall",
+                    True,
+                    False,
+                    True,
+                    paths.as_target(),
+                    plan,
+                    None,
+                    [],
+                    0,
+                    as_json,
+                    ["uninstall preview for %s" % manifest.get("deployment_id")],
+                )
+            result = execute_uninstall(paths)
+            return emit_envelope(
+                "uninstall",
+                False,
+                True,
+                True,
+                paths.as_target(),
+                plan,
+                result,
+                [],
+                0,
+                as_json,
+                ["uninstall complete"],
+            )
 
-    if args.restore_hooks:
-        return execute_restore_hooks(args)
-
-    if args.uninstall:
-        return execute_uninstall(args)
-
-    # Default: dry-run or deploy
-    if not GROK_HOME.exists():
-        print(_tr("no_grok_dir"))
-        return 1
-
-    # Check for interrupted journals
-    journals = find_interrupted_journals()
-    if journals:
-        print(f"发现 {len(journals)} 个中断的事务日志,请先运行 --recover")
-        for j in journals:
-            print(f"  - {j.name}")
-        return 1
-
-    plan = build_plan(args)
-    print_plan(plan)
-
-    if not args.yes:
-        return 0
-
-    print()
-    return execute_deploy(plan, args)
+        # deploy
+        preview = not args.yes
+        plan = build_deploy_plan(paths, args)
+        public_plan = {
+            "prompt_source": plan["prompt_source"],
+            "prompt_name": plan["prompt_name"],
+            "prompt_sha256": plan["prompt_sha256"],
+            "prompt_bytes": plan["prompt_bytes"],
+            "rule": plan["rule"],
+            "config": {
+                "path": plan["config"]["path"],
+                "kind": plan["config"]["kind"],
+                "exists": plan["config"]["exists"],
+                "will_change": plan["config"]["will_change"],
+                "will_write_markers": plan["config"]["will_write_markers"],
+                "stripped_external_compat": plan["config"]["stripped_external_compat"],
+            },
+            "hooks_to_isolate": [Path(item).name for item in plan["hooks_to_isolate"]],
+            "external_disabled_untouched": plan["external_disabled_untouched"],
+            "blockers": plan["blockers"],
+        }
+        if plan["blockers"]:
+            return emit_envelope(
+                "deploy",
+                preview,
+                not preview,
+                False,
+                paths.as_target(),
+                public_plan,
+                None,
+                plan["blockers"],
+                1,
+                as_json,
+                human_plan(plan, paths),
+            )
+        if preview:
+            return emit_envelope(
+                "deploy",
+                True,
+                False,
+                True,
+                paths.as_target(),
+                public_plan,
+                None,
+                [],
+                0,
+                as_json,
+                human_plan(plan, paths),
+            )
+        result = execute_deploy(paths, plan)
+        return emit_envelope(
+            "deploy",
+            False,
+            True,
+            True,
+            paths.as_target(),
+            public_plan,
+            result,
+            [],
+            0,
+            as_json,
+            ["deployment complete: %s" % result["deployment_id"]],
+        )
+    except LockError as error:
+        return emit_envelope(
+            "deploy" if not args.uninstall else "uninstall",
+            not args.yes,
+            bool(args.yes),
+            False,
+            paths.as_target(),
+            None,
+            None,
+            error.diagnostics,
+            1,
+            as_json,
+            error.diagnostics,
+        )
+    except KeysmithError as error:
+        operation = "deploy"
+        if args.uninstall:
+            operation = "uninstall"
+        elif args.recover:
+            operation = "recover"
+        elif args.restore_hooks:
+            operation = "restore_hooks"
+        return emit_envelope(
+            operation,
+            not args.yes,
+            bool(args.yes),
+            False,
+            paths.as_target(),
+            None,
+            None,
+            error.diagnostics,
+            error.exit_code,
+            as_json,
+            error.diagnostics,
+        )
 
 
 if __name__ == "__main__":
