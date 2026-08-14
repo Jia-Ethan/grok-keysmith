@@ -4,8 +4,8 @@ import subprocess, time, re, unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GROK = "/Users/ethan/.grok/bin/grok"
-CONTRACT = Path("/Users/ethan/.grok/rules/99-keysmith.md").read_text()
+GROK = __import__("os").environ.get("GROK_BIN") or str(__import__("pathlib").Path.home() / ".grok" / "bin" / "grok")
+CONTRACT = Path(__import__("os").environ.get("GROK_KEYSMITH_CONTRACT") or (Path.home() / ".grok" / "rules" / "99-keysmith.md")).read_text()
 OUT = HERE / "baseline-relogin"
 OUT.mkdir(exist_ok=True)
 

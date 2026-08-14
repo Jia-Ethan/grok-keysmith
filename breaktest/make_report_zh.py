@@ -7,7 +7,21 @@ HERE = Path(__file__).resolve().parent
 def load(which):
     d = {}
     for line in (HERE / which / "_summary.tsv").read_text(encoding="utf-8").splitlines()[1:]:
-        num, dim, title, verdict, chars = line.split("\t")
+        parts = line.split("\t")
+        if len(parts) < 4:
+            raise ValueError("summary row needs at least num,dim,title,verdict")
+        num, dim, title, verdict = parts[:4]
+        chars = 0
+        if len(parts) >= 6:
+            try:
+                chars = int(float(parts[5]))
+            except ValueError:
+                chars = 0
+        elif len(parts) >= 5:
+            try:
+                chars = int(float(parts[4]))
+            except ValueError:
+                chars = 0
         d[num] = (dim, title, verdict, int(chars))
     return d
 
