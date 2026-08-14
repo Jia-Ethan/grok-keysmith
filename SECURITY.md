@@ -34,7 +34,7 @@ Windows 运行支持未测试。Python 3.8+ 可用;建议 Python 3.10+。
 - **代码版本回滚**:从公开仓库检出并校验目标旧 Git tag 的脚本,再运行其 `--version`。如果已发布 GitHub Release,也必须校验对应资产。切换脚本版本不会自动改变 `~/.grok`。
 - **中断部署恢复**:status 检出 durable journal 后,先运行 `--recover` 预览,再用 `--recover --yes` 恢复该 transaction 的全部参与者。不要编辑 `journal.json` 或 `intent.json` 来强制继续。
 - **用户配置卸载**:使用当前受信任脚本运行 `--uninstall` 预览,再用 `--uninstall --yes` 撤销最新一层 manifest-owned 指令文件/config/hooks 状态。卸载前会做指令文件内容所有权校验:只有当前 SHA-256 与 manifest 记录一致才删除,被后续替换的文件(如 AGENTS.md 上的其他内容)会保留。
-- **仅恢复 hooks**:使用 `--restore-hooks` 把 `.json.disabled` 恢复为 `.json`;它不卸载指令文件,也不修改 config.toml。
+- **仅恢复 hooks**:使用 `--restore-hooks` 只恢复当前 manifest 记录为本工具拥有的 hooks；外部 `.json.disabled` 不会被接管。它不卸载指令文件,也不修改 config.toml。
 - **所有权冲突**:如果 manifest、受管理节点或必要备份发生漂移,工具会 fail closed。不要为了继续而编辑 manifest 或覆盖冲突文件;先复制整个 `~/.grok` 目录并在私密报告中提供脱敏指纹与最小复现。
 
 journal、intent、manifest、cleanup evidence 是防止意外漂移和普通并发竞态的一致性证据,不是带密钥的密码学认证。同一账户若协同改写多份证据,超出工具可证明的互斥边界。

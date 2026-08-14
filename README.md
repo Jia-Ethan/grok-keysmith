@@ -43,11 +43,11 @@ test "$(git describe --tags --exact-match)" = "v0.3.0"
 test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
 python3 grok-keysmith.py --version
-python3 grok-keysmith.py --status
-python3 grok-keysmith.py --dry-run
+python3 grok-keysmith.py --status --json
+python3 grok-keysmith.py --dry-run --json
 
 # 确认目标目录、提示词来源、compat/hooks 隔离计划无误后：
-python3 grok-keysmith.py --yes
+python3 grok-keysmith.py --yes --json
 ```
 
 不要从浮动 `main` 安装正式版本。部署完成后在项目目录外开启新的 Grok 会话验证：
@@ -70,7 +70,7 @@ grok inspect --json | python3 -c "import sys,json; d=json.load(sys.stdin); [prin
 
 不触碰 `~/.grok/AGENTS.md`：人物卡、agent 档案与 keysmith 部署完全解耦。卸载时若指令文件内容已不是本次部署写入的（如 AGENTS.md 后来换成了人物卡），会保留原文件。
 
-完整字段和边界条件见 [`docs/reference.md`](docs/reference.md)。
+完整字段和边界条件见 [`docs/reference.md`](docs/reference.md)。GUI 说明见 [`gui/README.md`](gui/README.md) 与 [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md)。`--json` 输出 `grok-keysmith.envelope.v1`，GUI 只消费该结构。`--grok-dir` 必须是绝对路径。`run` / `breaktest` 只检查 Grok 可执行状态，不登录、不读取 token。
 
 ### 撤销
 

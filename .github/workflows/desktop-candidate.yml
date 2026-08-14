@@ -1,0 +1,96 @@
+name: Desktop Candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-candidate.yml"
+      - "VERSION"
+      - "grok-keysmith.py"
+      - "grok_keysmith_runner.py"
+      - "grok_keysmith_breaktest.py"
+      - "gui/**"
+      - "tests/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.14.0"
+  PYTHON_VERSION: "3.12.9"
+  PYINSTALLER_VERSION: "6.16.0"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUTF8: "1"
+  GROK_KEYSMITH_SOURCE_COMMIT: ${{ github.sha }}
+
+jobs:
+  candidate:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon macOS / DMG
+            os: macos-15
+            target: aarch64-apple-darwin
+          - label: Windows x64 / NSIS
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - label: Linux static checks
+            os: ubuntu-24.04
+            target: linux-static
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Frontend and Python gates
+        working-directory: gui
+        env:
+          HOME: ${{ runner.temp }}/isolated-home
+        run: |
+          npm ci
+          npm test
+          npm run build
+          python -m pip install "pytest==8.4.2"
+          python -m pytest -p no:cacheprovider -q ../tests
+          mkdir -p src-tauri/binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            printf '%s\n' '@echo grok-keysmith 0.4.0-dev' > src-tauri/binaries/grok-keysmith-cli-x86_64-pc-windows-msvc.exe
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            printf '%s\n' '#!/bin/sh' 'echo grok-keysmith 0.4.0-dev' > src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
+            chmod +x src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
+          fi
+
+      - name: Linux static only
+        if: matrix.target == 'linux-static'
+        run: |
+          python -m py_compile grok-keysmith.py grok_keysmith_runner.py grok_keysmith_breaktest.py
+          rustc --version
+
+      - name: Native sidecar and Tauri
+        if: matrix.target != 'linux-static'
+        working-directory: gui
+        run: |
+          python -m pip install "PyInstaller==${PYINSTALLER_VERSION}"
+          npm run build:sidecar -- --target ${{ matrix.target }}
+          npx tauri build
+        env:
+          HOME: ${{ runner.temp }}/isolated-home

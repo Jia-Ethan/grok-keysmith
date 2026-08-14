@@ -6,6 +6,32 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Development version `0.4.0-dev`. Not a GitHub Release.
+
+### Added
+
+- Machine JSON envelope (`--json`) for status, deploy, uninstall, restore, recover, run, and breaktest.
+- Explicit absolute `--grok-dir` (default remains `~/.grok`).
+- Cross-process write lock, UUID transaction IDs, exclusive temp files, unique backups.
+- Manifest `schema_version` 2 with before/after fingerprints, previous layer, and hook ownership.
+- Prompt runner (`run`) with `default` / `override`, `--prompt-file`, streaming, timeout, and process-tree cancel.
+- Productized `breaktest` harness with isolated run directories and a heuristic classifier.
+- Desktop GUI 0.1.0-beta.1 (macOS Apple Silicon and Windows x64 unsigned candidates).
+
+### Changed
+
+- Preview and apply are mutually exclusive; `--dry-run --yes` fails with zero writes.
+- Recover restores verified original rule/config/hooks instead of only deleting new files.
+- Committed uninstall fails closed on drift/conflict and only removes the current managed layer.
+- Status states: `not-installed`, `active-aligned`, `inactive`, `drift`, `conflict`, `recovery-required`.
+- `--restore-hooks` restores only hooks owned by the current manifest.
+- Fresh `config.toml` always receives a marked compat block.
+
+### Fixed
+
+- `GROK_KEYSMIth_CONTRACT` is only a deprecated alias of `GROK_KEYSMITH_CONTRACT`.
+- Historical breaktest scripts no longer hardcode a user home path.
+
 ## [0.3.0] - 2026-08-14
 
 Scenario-architecture release. The bundled prompt is rebuilt around the

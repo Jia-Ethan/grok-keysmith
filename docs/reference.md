@@ -4,6 +4,8 @@
 
 日常使用只需要 [`README.md`](../README.md) 的「快速开始」；本页是完整字段、状态机和维护者验证细节。
 
+机器契约：`--json` 输出 `grok-keysmith.envelope.v1`，字段为 schema / tool / version / operation / preview / apply / ok / target / plan / result / diagnostics / exit_code。`--grok-dir` 必须为绝对路径。状态值为 `not-installed` / `active-aligned` / `inactive` / `drift` / `conflict` / `recovery-required`。
+
 ---
 
 ## 简体中文
@@ -117,19 +119,21 @@ git diff --check
 
 ```text
 grok-keysmith/
-├── grok-keysmith.py              # 单文件 CLI 与内置提示词
-├── examples/grok-unrestricted.md # 内置提示词的可审计源文件
-├── VERSION                       # 机器可读版本
+├── grok-keysmith.py              # 生命周期 CLI 与内置提示词
+├── grok_keysmith_runner.py       # 跨平台 Prompt Runner
+├── grok_keysmith_breaktest.py    # Breaktest 产品入口
+├── grok-unrestricted.sh/.ps1     # Runner 包装
+├── examples/grok-unrestricted.md
+├── tests/                        # 隔离 HOME / fake Grok 测试
+├── gui/                          # Desktop 0.1.0-beta.1
+├── VERSION
 ├── docs/
-│   ├── reference.md
-│   ├── agent-install.md
-│   └── legacy/
-├── README.md / README.en.md      # 使用与边界说明
-├── CHANGELOG.md                  # 版本变更
-├── SECURITY.md                   # 漏洞私密通报、回滚与完整性校验
-├── LICENSE                       # MIT License
-├── AGENTS.md                     # 项目内 Agent 协作规则
-└── .gitignore                    # 本地与运行时产物忽略规则
+├── README.md / README.en.md
+├── CHANGELOG.md
+├── SECURITY.md
+├── LICENSE
+├── AGENTS.md
+└── .gitignore
 ```
 
 ### 已知限制

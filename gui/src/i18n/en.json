@@ -1,0 +1,99 @@
+{
+  "nav": {
+    "dashboard": "Status",
+    "deploy": "Deploy",
+    "run": "Run",
+    "test": "Test",
+    "manage": "Manage",
+    "settings": "Settings",
+    "expand": "Expand",
+    "collapse": "Collapse"
+  },
+  "state": {
+    "not-installed": "Not installed",
+    "active-aligned": "Aligned",
+    "inactive": "Inactive",
+    "drift": "Drift",
+    "conflict": "Conflict",
+    "recovery-required": "Recovery required"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "copy": "Copy",
+    "save": "Save",
+    "refresh": "Refresh",
+    "preview": "Preview",
+    "apply": "Apply"
+  },
+  "dash": {
+    "title": "Status",
+    "refresh": "Refresh",
+    "managed": "Managed files",
+    "inspect": "Grok inspect",
+    "noCli": "Keysmith CLI not found",
+    "cliCheckFailed": "CLI check failed",
+    "noCliAction": "Open settings",
+    "error": "Status failed",
+    "rule": "Rule",
+    "compat": "compat",
+    "hooks": "hooks",
+    "manifest": "manifest",
+    "backups": "Backups",
+    "residue": "Transaction residue",
+    "recoverAction": "Recover"
+  },
+  "deploy": {
+    "title": "Deploy",
+    "bundled": "Bundled Markdown",
+    "local": "Local Markdown",
+    "choose": "Choose file",
+    "preview": "Preview",
+    "confirm": "Confirm deploy",
+    "stale": "Target changed; preview is stale"
+  },
+  "run": {
+    "title": "Run",
+    "prompt": "Prompt",
+    "mode": "Mode",
+    "default": "default",
+    "override": "override",
+    "start": "Start",
+    "cancel": "Cancel",
+    "save": "Save output"
+  },
+  "test": {
+    "title": "Test",
+    "bank": "Prompt bank",
+    "start": "Start",
+    "cancel": "Cancel",
+    "retry": "Retry failed",
+    "resume": "Resume",
+    "openReport": "Open report"
+  },
+  "manage": {
+    "title": "Manage",
+    "uninstall": "Layered uninstall",
+    "restoreHooks": "Restore owned hooks",
+    "recover": "Recover",
+    "backups": "Backups",
+    "exitQueued": "Waiting for the current operation before exit",
+    "exitGuardFailed": "Exit guard failed",
+    "exitFailed": "Exit failed"
+  },
+  "settings": {
+    "title": "Settings",
+    "cli": "Keysmith CLI",
+    "grok": "Grok binary",
+    "grokDir": "Default Grok directory",
+    "lang": "Language",
+    "theme": "Theme",
+    "export": "Export diagnostics",
+    "about": "Version"
+  },
+  "runtime": {
+    "bundled": "Bundled",
+    "executable": "Executable",
+    "python": "Python"
+  }
+}

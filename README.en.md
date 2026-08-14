@@ -35,11 +35,11 @@ test "$(git describe --tags --exact-match)" = "v0.3.0"
 test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
 python3 grok-keysmith.py --version
-python3 grok-keysmith.py --status
-python3 grok-keysmith.py --dry-run
+python3 grok-keysmith.py --status --json
+python3 grok-keysmith.py --dry-run --json
 
 # After confirming the target directory, prompt source, and compat/hooks plan:
-python3 grok-keysmith.py --yes
+python3 grok-keysmith.py --yes --json
 ```
 
 Never install a formal release from a floating `main`. Verify with a new Grok session outside the repository directory:
@@ -62,7 +62,7 @@ Should show `~/.grok/rules/99-keysmith.md` as enabled; every Claude/Cursor compa
 
 `~/.grok/AGENTS.md` is not touched: persona cards and agent profiles stay fully decoupled from the keysmith deployment. During uninstall, a file whose content no longer matches the deployment record (e.g. AGENTS.md later replaced by a persona card) is preserved.
 
-Full field list and edge cases: [`docs/reference.md`](docs/reference.md).
+Full field list and edge cases: [`docs/reference.md`](docs/reference.md). Desktop notes: [`gui/README.md`](gui/README.md) and [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md). `--json` emits `grok-keysmith.envelope.v1`. `--grok-dir` must be absolute. `run` / `breaktest` never log in or read tokens.
 
 ### Undo
 

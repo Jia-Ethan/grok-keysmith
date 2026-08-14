@@ -1,0 +1,99 @@
+{
+  "nav": {
+    "dashboard": "状态总览",
+    "deploy": "部署",
+    "run": "运行",
+    "test": "测试",
+    "manage": "管理",
+    "settings": "设置",
+    "expand": "展开",
+    "collapse": "收起"
+  },
+  "state": {
+    "not-installed": "未安装",
+    "active-aligned": "已对齐",
+    "inactive": "未生效",
+    "drift": "漂移",
+    "conflict": "冲突",
+    "recovery-required": "需恢复"
+  },
+  "common": {
+    "cancel": "取消",
+    "confirm": "确认",
+    "copy": "复制",
+    "save": "保存",
+    "refresh": "刷新",
+    "preview": "预览",
+    "apply": "执行"
+  },
+  "dash": {
+    "title": "状态总览",
+    "refresh": "刷新",
+    "managed": "受管文件",
+    "inspect": "Grok inspect",
+    "noCli": "未找到 Keysmith CLI",
+    "cliCheckFailed": "CLI 校验失败",
+    "noCliAction": "打开设置",
+    "error": "状态获取失败",
+    "rule": "规则",
+    "compat": "compat",
+    "hooks": "hooks",
+    "manifest": "manifest",
+    "backups": "备份",
+    "residue": "事务残留",
+    "recoverAction": "恢复中断操作"
+  },
+  "deploy": {
+    "title": "部署",
+    "bundled": "内置 Markdown",
+    "local": "本地 Markdown",
+    "choose": "选择文件",
+    "preview": "生成预览",
+    "confirm": "确认部署",
+    "stale": "目标已变化，预览已失效"
+  },
+  "run": {
+    "title": "运行",
+    "prompt": "Prompt",
+    "mode": "模式",
+    "default": "default",
+    "override": "override",
+    "start": "开始",
+    "cancel": "取消",
+    "save": "保存输出"
+  },
+  "test": {
+    "title": "测试",
+    "bank": "Prompt bank",
+    "start": "开始",
+    "cancel": "取消",
+    "retry": "重试失败",
+    "resume": "恢复",
+    "openReport": "打开报告"
+  },
+  "manage": {
+    "title": "管理",
+    "uninstall": "分层卸载",
+    "restoreHooks": "恢复本工具 hooks",
+    "recover": "中断恢复",
+    "backups": "备份",
+    "exitQueued": "正在等待当前操作结束后退出",
+    "exitGuardFailed": "退出保护注册失败",
+    "exitFailed": "退出失败"
+  },
+  "settings": {
+    "title": "设置",
+    "cli": "Keysmith CLI",
+    "grok": "Grok binary",
+    "grokDir": "默认 Grok 目录",
+    "lang": "语言",
+    "theme": "主题",
+    "export": "导出诊断",
+    "about": "版本"
+  },
+  "runtime": {
+    "bundled": "内置",
+    "executable": "可执行文件",
+    "python": "Python"
+  }
+}
