@@ -22,3 +22,7 @@ htmlcov/
 *.keysmith-conflict-*
 .grok-keysmith-transaction-*
 docs/legacy/
+# breaktest sampling outputs and logs (keep scripts and reports)
+breaktest/*/
+breaktest/*.log
+breaktest/_summary.tsv
