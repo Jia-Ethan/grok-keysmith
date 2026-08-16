@@ -35,6 +35,20 @@ describe("settings", () => {
       defaultGrokDir: "",
       lang: "zh-CN",
       theme: "system",
+      showAdvancedTools: false,
     });
+  });
+
+  it("高级工具开关默认关闭并持久化", async () => {
+    const storage = createStorage();
+    vi.stubGlobal("localStorage", storage);
+    const { getSettings, saveSettings } = await import("./settings.js");
+    expect(getSettings().showAdvancedTools).toBe(false);
+    saveSettings({ showAdvancedTools: true });
+    expect(getSettings().showAdvancedTools).toBe(true);
+    expect(JSON.parse(storage.value(KEY)).showAdvancedTools).toBe(true);
+    // 非布尔值一律归一化为关闭
+    saveSettings({ showAdvancedTools: "yes" });
+    expect(getSettings().showAdvancedTools).toBe(false);
   });
 });

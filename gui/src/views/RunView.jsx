@@ -225,7 +225,7 @@ export function RunView() {
 
   return (
     <div>
-      <FadeIn><h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("run.title")}</h1></FadeIn>
+      <FadeIn><h2 className="mb-6 text-xl font-semibold tracking-tight">{t("run.title")}</h2></FadeIn>
       <div className="card-glass p-5" aria-busy={busy}>
         <label className="text-sm" htmlFor="run-prompt">{t("run.prompt")}</label>
         <textarea

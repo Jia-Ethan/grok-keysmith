@@ -10,6 +10,7 @@ import {
   isTauriMissing,
 } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TechnicalDetails } from "@/components/TechnicalDetails";
 import { Button } from "@/components/ui/button";
 import { FadeIn } from "@/components/FadeIn";
 import { useAppState } from "@/hooks/useAppState";
@@ -20,6 +21,8 @@ import {
   createPreviewBinding,
   verifyGrokInspect,
 } from "@/lib/contract";
+import { cn } from "@/lib/utils";
+import { deployConfirmBody, deployPreviewSummary } from "@/lib/previewPresentation";
 
 export function Deploy() {
   const { t } = useTranslation();
@@ -34,6 +37,9 @@ export function Deploy() {
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
   const cliReady = outsideTauri || (cliInfo.checked && Boolean(cliInfo.path));
   const cliUnavailable = !outsideTauri && cliInfo.checked && !cliInfo.path;
+
+  // 三步流程：1 选择内容 → 2 查看预览 → 3 确认执行
+  const step = confirmOpen || (preview && binding) ? (confirmOpen ? 3 : 2) : 1;
 
   const deployArgs = React.useCallback((dryRun) => {
     const args = dryRun ? ["--dry-run"] : [];
@@ -175,10 +181,39 @@ export function Deploy() {
   }
 
   const plan = preview?.plan;
+  const grokDir = preview?.target?.grok_dir || "";
+  const sourceLabel = source === "bundled" ? t("deploy.bundled") : (file || t("deploy.local"));
+  const summary = plan ? deployPreviewSummary(plan, sourceLabel, t) : null;
 
   return (
     <div>
       <FadeIn><h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("deploy.title")}</h1></FadeIn>
+
+      <ol className="mb-6 flex flex-wrap items-center gap-3 text-sm" aria-label={t("deploy.title")}>
+        {[1, 2, 3].map((n) => (
+          <li
+            key={n}
+            aria-current={step === n ? "step" : undefined}
+            className="flex items-center gap-2"
+          >
+            <span
+              className={cn(
+                "flex size-6 items-center justify-center rounded-full text-xs font-medium",
+                n < step && "bg-[var(--ok-soft)] text-[var(--ok)]",
+                n === step && "bg-accent-soft text-accent",
+                n > step && "bg-elevated text-muted-foreground",
+              )}
+            >
+              {n < step ? "✓" : n}
+            </span>
+            <span className={cn(n === step ? "text-foreground" : "text-muted-foreground")}>
+              {t(`deploy.step${n}`)}
+            </span>
+            {n < 3 ? <span className="text-muted-foreground" aria-hidden="true">→</span> : null}
+          </li>
+        ))}
+      </ol>
+
       <div className="card-glass p-5" aria-busy={busy}>
         <div className="flex flex-wrap gap-2" role="group" aria-label={t("deploy.source")}>
           <Button
@@ -199,7 +234,9 @@ export function Deploy() {
             <Button variant="secondary" onClick={chooseFile}>{t("deploy.choose")}</Button>
           )}
         </div>
-        {file ? <p className="mt-3 break-all font-mono text-xs">{file}</p> : null}
+        {file ? (
+          <p className="mt-3 truncate font-mono text-xs text-muted-foreground" title={file}>{file}</p>
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={makePreview} disabled={busy || !cliReady || (source === "local" && !file)}>{t("deploy.preview")}</Button>
           <Button
@@ -219,16 +256,14 @@ export function Deploy() {
 
       {plan && (
         <div className="card-glass mt-4 p-5 text-sm">
-          <dl className="grid gap-2">
-            <Row label="source" value={plan.prompt_source} />
-            <Row label="sha256" value={plan.prompt_sha256} />
-            <Row label="token" value={binding?.token} />
-            <Row label="rule" value={`${plan.rule?.kind} ${plan.rule?.path || ""}`} />
-            <Row label="compat" value={plan.config?.will_write_markers ? "write markers" : "—"} />
-            <Row label="stripped" value={(plan.config?.stripped_external_compat || []).join(", ") || "—"} />
-            <Row label="hooks" value={(plan.hooks_to_isolate || []).join(", ") || "—"} />
-            <Row label="external .disabled" value={(plan.external_disabled_untouched || []).join(", ") || "—"} />
-          </dl>
+          <h2 className="text-sm font-semibold">{t("deploy.step2")}</h2>
+          <ul className="mt-3 grid gap-2">
+            {summary.lines.map((line, index) => <li key={index}>{line}</li>)}
+            {summary.blocked ? <li className="text-danger">{t("deploy.blocked")}</li> : null}
+          </ul>
+          <TechnicalDetails>
+            <pre className="log-block mt-2">{JSON.stringify(plan, null, 2)}</pre>
+          </TechnicalDetails>
         </div>
       )}
 
@@ -236,20 +271,11 @@ export function Deploy() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={t("deploy.confirm")}
-        body={[plan?.prompt_sha256, binding?.token].filter(Boolean).join("\n")}
+        body={deployConfirmBody({ grokDir, sourceLabel }, t)}
         danger
         confirmDisabled={busy}
         onConfirm={applyDeploy}
       />
-    </div>
-  );
-}
-
-function Row({ label, value }) {
-  return (
-    <div className="grid grid-cols-1 gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-all font-mono text-xs">{value || "—"}</dd>
     </div>
   );
 }

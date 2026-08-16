@@ -1,0 +1,81 @@
+// 页面级回归：部署确认界面不显示 token/SHA，管理页确认不显示原始 plan/token。
+import { describe, expect, it } from "vitest";
+import {
+  deployConfirmBody,
+  deployPreviewSummary,
+  managePlanSummary,
+} from "./previewPresentation.js";
+
+const SHA = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898";
+const TOKEN = "7faa73ca803ce4b7608c75172cb29a6d28ca0155fb43decb09f582d526a1112c";
+
+const t = (key, params) => {
+  const table = {
+    "deploy.sourceSummary": `来源：${params?.source}`,
+    "deploy.willModify": "将写入规则并更新 Grok 配置",
+    "deploy.isolateHooks": `将隔离 ${params?.count} 个 hooks`,
+    "deploy.noHooksIsolated": "不需要隔离 hooks",
+    "deploy.stripCompat": "将移除外部 compat 配置",
+    "deploy.blocked": "存在阻塞，无法部署",
+    "deploy.confirmBody": `目标目录：${params?.dir}\n来源：${params?.source}\n将修改 Grok 规则与配置，CLI 会自动备份。`,
+    "manage.planUninstall": "将移除受管规则与配置，恢复部署前状态",
+    "manage.planRestoreHooks": "将重新启用本工具禁用的 hooks",
+    "manage.planCleanResidue": `将清理 ${params?.count} 项中断事务残留`,
+    "manage.planGeneric": "将执行选中的维护操作",
+  };
+  return table[key] || key;
+};
+
+describe("部署预览与确认呈现", () => {
+  const plan = {
+    prompt_source: "bundled",
+    prompt_sha256: SHA,
+    confirmation_token: TOKEN,
+    hooks_to_isolate: ["a.js"],
+    config: { stripped_external_compat: ["[compat.cursor]"], will_write_markers: true },
+    blockers: [],
+  };
+
+  it("预览用户文案不含 token 与完整 SHA", () => {
+    const summary = deployPreviewSummary(plan, "内置 Markdown", t);
+    const text = summary.lines.join("\n");
+    expect(text).not.toContain(SHA);
+    expect(text).not.toContain(TOKEN);
+    expect(text).not.toContain("confirmation_token");
+    expect(text).toContain("内置 Markdown");
+    expect(text).toContain("将隔离 1 个 hooks");
+    expect(summary.blocked).toBe(false);
+  });
+
+  it("确认弹窗只显示目标目录、来源和操作影响", () => {
+    const body = deployConfirmBody({ grokDir: "/Users/x/.grok", sourceLabel: "内置 Markdown" }, t);
+    expect(body).toContain("/Users/x/.grok");
+    expect(body).toContain("内置 Markdown");
+    expect(body).toContain("自动备份");
+    expect(body).not.toContain(SHA);
+    expect(body).not.toContain(TOKEN);
+  });
+
+  it("阻塞状态正确上报", () => {
+    const summary = deployPreviewSummary({ ...plan, blockers: ["x"] }, "s", t);
+    expect(summary.blocked).toBe(true);
+  });
+});
+
+describe("管理页确认呈现", () => {
+  it("recover 摘要只描述残留数量，不带原始 plan", () => {
+    const lines = managePlanSummary({ journals: ["j1", "j2"], confirmation_token: TOKEN }, "recover", t);
+    expect(lines.join("\n")).toContain("2 项中断事务残留");
+    expect(lines.join("\n")).not.toContain(TOKEN);
+    expect(lines.join("\n")).not.toContain("j1");
+  });
+
+  it("restore/uninstall 使用用户语言", () => {
+    expect(managePlanSummary({}, "restore", t)[0]).toContain("hooks");
+    expect(managePlanSummary({}, "uninstall", t)[0]).toContain("部署前状态");
+  });
+
+  it("plan 为 null 时退回通用描述", () => {
+    expect(managePlanSummary(null, "recover", t)[0]).toBe("将执行选中的维护操作");
+  });
+});

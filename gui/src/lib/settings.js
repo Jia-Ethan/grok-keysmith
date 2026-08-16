@@ -6,6 +6,7 @@ const defaults = {
   defaultGrokDir: "",
   lang: "zh-CN",
   theme: "system",
+  showAdvancedTools: false,
 };
 
 let cache = null;
@@ -21,6 +22,7 @@ function normalizeSettings(settings) {
     cliPath: normalizeCliPath(settings.cliPath),
     grokBin: normalizeCliPath(settings.grokBin),
     defaultGrokDir: normalizeCliPath(settings.defaultGrokDir),
+    showAdvancedTools: settings.showAdvancedTools === true,
   };
 }
 

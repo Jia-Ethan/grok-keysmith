@@ -1,14 +1,25 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Trash2, History, LifeBuoy } from "lucide-react";
 import { cliExecute, fetchPreview, fetchStatus, isTauriMissing } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TechnicalDetails } from "@/components/TechnicalDetails";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/FadeIn";
 import { useAppState } from "@/hooks/useAppState";
 import { beginExclusiveOperation, endOperation, setLastStatus } from "@/lib/store";
 import { getSettings } from "@/lib/settings";
 import { comparePreviewBindings, createPreviewBinding } from "@/lib/contract";
+import { managePlanSummary } from "@/lib/previewPresentation";
+import { cn } from "@/lib/utils";
+
+const OPERATIONS = [
+  { kind: "uninstall", icon: Trash2, danger: true },
+  { kind: "restore", icon: History, danger: false },
+  { kind: "recover", icon: LifeBuoy, danger: true },
+];
 
 const PREVIEW_ARGS = {
   uninstall: ["--uninstall"],
@@ -32,9 +43,11 @@ export function Manage() {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [error, setError] = React.useState("");
   const [backups, setBackups] = React.useState([]);
+  const [residue, setResidue] = React.useState([]);
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
   const cliReady = outsideTauri || (cliInfo.checked && Boolean(cliInfo.path));
   const cliUnavailable = !outsideTauri && cliInfo.checked && !cliInfo.path;
+  const hasResidue = residue.length > 0;
 
   const loadStatus = React.useCallback(async () => {
     if (!cliReady) return null;
@@ -42,6 +55,7 @@ export function Manage() {
       const envelope = await fetchStatus();
       setError("");
       setBackups(envelope.result?.backups || []);
+      setResidue(envelope.result?.residue || []);
       setLastStatus(envelope);
       return envelope;
     } catch (err) {
@@ -156,6 +170,7 @@ export function Manage() {
       if (status) {
         setLastStatus(status);
         setBackups(status.result?.backups || []);
+        setResidue(status.result?.residue || []);
       } else {
         setLastStatus(null);
       }
@@ -175,40 +190,92 @@ export function Manage() {
     }
   }
 
+  const previewSummary = preview ? managePlanSummary(preview.plan || {}, kind, t) : [];
+  const grokDir = preview?.target?.grok_dir || "";
+
   return (
     <div>
       <FadeIn><h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("manage.title")}</h1></FadeIn>
-      <div className="card-glass flex flex-wrap gap-2 p-5" aria-busy={busy}>
-        <Button variant="destructive" disabled={busy || !cliReady} onClick={() => previewOp("uninstall")}>
-          {t("manage.uninstall")}
-        </Button>
-        <Button variant="outline" disabled={busy || !cliReady} onClick={() => previewOp("restore")}>
-          {t("manage.restoreHooks")}
-        </Button>
-        <Button variant="warning" disabled={busy || !cliReady} onClick={() => previewOp("recover")}>
-          {t("manage.recover")}
-        </Button>
+
+      <div className="grid gap-3" aria-busy={busy}>
+        {OPERATIONS.map(({ kind: opKind, icon: Icon, danger }) => {
+          const isRecover = opKind === "recover";
+          const enabled = cliReady && (!isRecover || hasResidue);
+          return (
+            <div
+              key={opKind}
+              data-operation={opKind}
+              className={cn(
+                "card-glass flex flex-wrap items-center justify-between gap-3 p-5",
+                isRecover && hasResidue && "border-warn/50",
+              )}
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <Icon className={cn("mt-0.5 size-5 shrink-0", danger ? "text-danger" : "text-muted-foreground")} aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold">{t(`manage.operation.${opKind}`)}</h2>
+                    {isRecover && hasResidue ? (
+                      <Badge variant="yellow">{t("manage.recoverAvailable")}</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{t(`manage.${opKind === "restore" ? "restoreHooks" : opKind}Desc`)}</p>
+                </div>
+              </div>
+              <Button
+                variant={danger ? (isRecover ? "warning" : "destructive") : "outline"}
+                disabled={busy || !enabled}
+                onClick={() => previewOp(opKind)}
+              >
+                {t("manage.previewAction")}
+              </Button>
+            </div>
+          );
+        })}
       </div>
+
       {cliUnavailable ? (
         <pre className="log-block mt-4" role="alert">{cliInfo.error || t("common.cliUnavailable")}</pre>
       ) : null}
       {error ? <pre className="log-block mt-4" role="alert">{error}</pre> : null}
+
       <div className="card-glass mt-4 p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">{t("manage.backups")}</h2>
           <Button variant="ghost" size="sm" onClick={loadStatus} disabled={busy || !cliReady}>{t("common.refresh")}</Button>
         </div>
-        <pre className="log-block mt-3">{(backups || []).join("\n") || "—"}</pre>
+        {backups.length > 0 ? (
+          <>
+            <p className="mt-3 text-sm">{t("manage.backupsSummary", { count: backups.length })}</p>
+            <p className="mt-1 truncate text-xs text-muted-foreground" title={backups[backups.length - 1]}>
+              {t("manage.latestBackup", { name: backups[backups.length - 1] })}
+            </p>
+            <TechnicalDetails label={t("manage.backupList")}>
+              <pre className="log-block mt-2">{backups.join("\n")}</pre>
+            </TechnicalDetails>
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">{t("manage.backupsSummary", { count: 0 })}</p>
+        )}
       </div>
+
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={kind ? t(`manage.operation.${kind}`) : ""}
-        body={preview ? [JSON.stringify(preview.plan || {}, null, 2), binding?.token].filter(Boolean).join("\n") : ""}
+        body={[
+          grokDir ? t("dash.grokDir") + ": " + grokDir : "",
+          ...previewSummary,
+        ].filter(Boolean).join("\n")}
         danger={kind === "uninstall"}
         confirmDisabled={busy}
         onConfirm={apply}
       />
+      {preview ? (
+        <TechnicalDetails>
+          <pre className="log-block mt-2">{JSON.stringify(preview.plan || {}, null, 2)}</pre>
+        </TechnicalDetails>
+      ) : null}
     </div>
   );
 }

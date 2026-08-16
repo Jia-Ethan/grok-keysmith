@@ -4,7 +4,7 @@ Desktop 0.1.0-beta.1 wraps the Python CLI. The UI never writes `~/.grok` itself.
 
 Stack: Tauri 2 + React 19 + Tailwind 4 + Radix + Motion + PyInstaller sidecar `grok-keysmith-cli`.
 
-Pages: Status, Deploy, Run, Test, Manage, Settings.
+Pages: Status, Deploy, Manage, Settings. Run and Test live under Advanced tools, a single sidebar entry gated by the persisted Settings toggle "Show advanced tools" (default off); legacy `run`/`test` deep links map to its tabs.
 
 All lifecycle calls use `--json`. The envelope schema is `grok-keysmith.envelope.v1`.
 
