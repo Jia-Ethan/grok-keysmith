@@ -22,7 +22,12 @@ import {
   verifyGrokInspect,
 } from "@/lib/contract";
 import { cn } from "@/lib/utils";
-import { deployConfirmBody, deployPreviewSummary } from "@/lib/previewPresentation";
+import {
+  deployConfirmBody,
+  deployPreviewSummary,
+  operationIssuePresentation,
+  previewGatePresentation,
+} from "@/lib/previewPresentation";
 
 export function Deploy() {
   const { t } = useTranslation();
@@ -33,13 +38,13 @@ export function Deploy() {
   const [binding, setBinding] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [error, setError] = React.useState("");
+  const [error, setError] = React.useState(null);
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
   const cliReady = outsideTauri || (cliInfo.checked && Boolean(cliInfo.path));
   const cliUnavailable = !outsideTauri && cliInfo.checked && !cliInfo.path;
 
   // 三步流程：1 选择内容 → 2 查看预览 → 3 确认执行
-  const step = confirmOpen || (preview && binding) ? (confirmOpen ? 3 : 2) : 1;
+  const step = confirmOpen ? 3 : (preview ? 2 : 1);
 
   const deployArgs = React.useCallback((dryRun) => {
     const args = dryRun ? ["--dry-run"] : [];
@@ -59,19 +64,29 @@ export function Deploy() {
     setConfirmOpen(false);
   }
 
+  function showIssue(issue) {
+    setError(issue);
+  }
+
+  function showRawIssue(values, fallbackKey = "deploy.failed") {
+    showIssue(operationIssuePresentation({ values, fallbackKey }, t));
+  }
+
   async function makePreview() {
     if (!cliReady) {
-      setError(cliInfo.error || t("common.cliUnavailable"));
+      showRawIssue(cliInfo.error || t("common.cliUnavailable"));
       return;
     }
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const envelope = await fetchPreview(deployArgs(true));
       if (!envelope.gate.ok) {
-        invalidatePreview();
-        setError(envelope.gate.reason);
+        setPreview(envelope);
+        setBinding(null);
+        setConfirmOpen(false);
+        showIssue(previewGatePresentation(envelope, "deploy.previewBlocked", t));
         return;
       }
       const nextBinding = await createPreviewBinding({ envelope, intent: intent(), settings });
@@ -79,7 +94,7 @@ export function Deploy() {
       setBinding(nextBinding);
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err, "deploy.previewFailed");
     } finally {
       setBusy(false);
     }
@@ -87,19 +102,21 @@ export function Deploy() {
 
   async function applyDeploy() {
     if (!cliReady) {
-      setError(cliInfo.error || t("common.cliUnavailable"));
+      showRawIssue(cliInfo.error || t("common.cliUnavailable"));
       return;
     }
     const lease = beginExclusiveOperation();
     if (!lease) return;
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const freshPreview = await fetchPreview(deployArgs(true));
       if (!freshPreview.gate.ok) {
-        invalidatePreview();
-        setError(freshPreview.gate.reason);
+        setPreview(freshPreview);
+        setBinding(null);
+        setConfirmOpen(false);
+        showIssue(previewGatePresentation(freshPreview, "deploy.previewBlocked", t));
         return;
       }
       const freshBinding = await createPreviewBinding({
@@ -110,14 +127,14 @@ export function Deploy() {
       const comparison = comparePreviewBindings(binding, freshBinding);
       if (!comparison.ok) {
         invalidatePreview();
-        setError(t("deploy.staleFields", { fields: comparison.changed.join(", ") || "token" }));
+        showIssue({ summary: t("deploy.stale"), details: t("deploy.staleFields", { fields: comparison.changed.join(", ") || "token" }) });
         return;
       }
 
       const previewToken = freshPreview.plan?.confirmation_token;
       if (!previewToken) {
         invalidatePreview();
-        setError(t("deploy.staleFields", { fields: "confirmation_token" }));
+        showIssue({ summary: t("deploy.stale"), details: t("deploy.staleFields", { fields: "confirmation_token" }) });
         return;
       }
       const result = await cliExecute([
@@ -127,7 +144,7 @@ export function Deploy() {
         previewToken,
       ]);
       if (!result.ok) {
-        setError((result.diagnostics || []).join("\n") || t("deploy.failed"));
+        showRawIssue(result.diagnostics || [], "deploy.failed");
         return;
       }
 
@@ -153,13 +170,13 @@ export function Deploy() {
       setLastStatus(verifiedStatus);
       invalidatePreview();
       if (verificationErrors.length) {
-        setError(`${t("deploy.verifyFailed")}\n${verificationErrors.join("\n")}`);
+        showIssue({ summary: t("deploy.verifyFailed"), details: verificationErrors.join("\n") });
       } else {
         toast.success(result.result?.deployment_id || t("deploy.complete"));
       }
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err);
     } finally {
       endOperation(lease);
       setBusy(false);
@@ -168,7 +185,7 @@ export function Deploy() {
   }
 
   async function chooseFile() {
-    setError("");
+    setError(null);
     try {
       const selected = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md"] }] });
       if (typeof selected === "string") {
@@ -176,7 +193,7 @@ export function Deploy() {
         invalidatePreview();
       }
     } catch (err) {
-      if (!isTauriMissing(err)) setError(String(err.message || err));
+      if (!isTauriMissing(err)) showRawIssue(err.message || err, "deploy.fileFailed");
     }
   }
 
@@ -250,9 +267,21 @@ export function Deploy() {
       </div>
 
       {cliUnavailable ? (
-        <pre className="log-block mt-4" role="alert">{cliInfo.error || t("common.cliUnavailable")}</pre>
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{t("common.cliUnavailable")}</p>
+          {cliInfo.error ? (
+            <TechnicalDetails><pre className="log-block mt-2">{cliInfo.error}</pre></TechnicalDetails>
+          ) : null}
+        </div>
       ) : null}
-      {error ? <pre className="log-block mt-4" role="alert">{error}</pre> : null}
+      {error ? (
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{error.summary}</p>
+          {error.details ? (
+            <TechnicalDetails><pre className="log-block mt-2">{error.details}</pre></TechnicalDetails>
+          ) : null}
+        </div>
+      ) : null}
 
       {plan && (
         <div className="card-glass mt-4 p-5 text-sm">
@@ -260,6 +289,7 @@ export function Deploy() {
           <ul className="mt-3 grid gap-2">
             {summary.lines.map((line, index) => <li key={index}>{line}</li>)}
             {summary.blocked ? <li className="text-danger">{t("deploy.blocked")}</li> : null}
+            {summary.issueLines.map((line) => <li key={line} className="text-danger">{line}</li>)}
           </ul>
           <TechnicalDetails>
             <pre className="log-block mt-2">{JSON.stringify(plan, null, 2)}</pre>

@@ -28,7 +28,15 @@
     "preview": "预览",
     "apply": "执行",
     "technicalDetails": "技术详情",
-    "cliUnavailable": "Keysmith CLI 不可用，请先在设置中完成检测"
+    "cliUnavailable": "Keysmith CLI 不可用，请先在设置中完成检测",
+    "issue": {
+      "recovery": "存在中断操作，请先完成恢复",
+      "busy": "其他操作正在进行，请稍后重试",
+      "hooks": "hooks 状态需要处理",
+      "changed": "目标状态已变化，请刷新后重试",
+      "conflict": "检测到冲突，需要先处理",
+      "generic": "操作暂时无法继续，请查看技术详情"
+    }
   },
   "dash": {
     "title": "状态总览",
@@ -38,6 +46,9 @@
     "retryCli": "重新检测",
     "noCliAction": "打开设置",
     "error": "状态获取失败",
+    "errorHint": "暂时无法读取当前状态，请检查 CLI 后重试。",
+    "nodeIssue": "受管文件状态异常",
+    "configInactive": "Grok 配置尚未生效",
     "health": "关键健康项",
     "rule": "规则",
     "grokConfig": "Grok 配置",
@@ -78,6 +89,9 @@
     "noHooksIsolated": "不需要隔离 hooks",
     "stripCompat": "将移除外部 compat 配置",
     "blocked": "存在阻塞，无法部署",
+    "previewBlocked": "当前状态不满足部署条件",
+    "previewFailed": "生成部署预览失败",
+    "fileFailed": "读取本地文件失败",
     "confirmBody": "目标目录：{{dir}}\n来源：{{source}}\n将修改 Grok 规则与配置，CLI 会自动备份。",
     "stale": "目标已变化，预览已失效",
     "staleFields": "预览已失效（{{fields}} 已变化），请重新生成",
@@ -185,6 +199,7 @@
     "recover": "中断恢复",
     "recoverDesc": "清理中断操作留下的事务残留",
     "recoverAvailable": "检测到事务残留，建议恢复",
+    "issues": "需要处理的问题",
     "previewAction": "预览",
     "previewRequired": "请先预览，确认影响后再执行",
     "backups": "备份",
@@ -198,6 +213,10 @@
     "exitQueued": "正在等待当前操作结束后退出",
     "exitGuardFailed": "退出保护注册失败",
     "exitFailed": "退出失败",
+    "statusFailed": "读取管理状态失败",
+    "previewBlocked": "当前状态不满足操作条件",
+    "previewFailed": "生成操作预览失败",
+    "stale": "目标已变化，预览已失效",
     "staleFields": "预览已失效（{{fields}} 已变化），请重新生成",
     "failed": "操作失败",
     "verifyFailed": "写入完成但验证失败",
@@ -238,7 +257,11 @@
   "raw": {
     "configChanged": "Grok 配置已发生变化",
     "unexpectedContent": "检测到未预期的内容",
-    "residue": "存在中断操作残留"
+    "residue": "存在中断操作残留",
+    "backupIssue": "备份状态异常",
+    "hookIssue": "hooks 状态异常",
+    "nodeIssue": "受管文件状态异常",
+    "otherIssue": "检测到需要处理的问题"
   },
   "advanced": {
     "title": "高级工具",

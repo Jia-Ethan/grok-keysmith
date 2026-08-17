@@ -2,7 +2,12 @@
 // 一级导航默认只有状态总览/部署/管理/设置；开启设置开关后只增加一个“高级工具”入口；
 // 关闭开关时若正位于高级工具页（或旧的 run/test 深链）安全返回状态总览。
 import { describe, expect, it } from "vitest";
-import { buildNav, resolveView, LEGACY_ADVANCED_VIEWS } from "./navigation.js";
+import {
+  buildNav,
+  resolveInitialNavigation,
+  resolveView,
+  LEGACY_ADVANCED_VIEWS,
+} from "./navigation.js";
 
 describe("一级导航与高级工具门禁", () => {
   it("默认只显示状态总览、部署、管理、设置", () => {
@@ -20,6 +25,28 @@ describe("一级导航与高级工具门禁", () => {
   it("旧的 run/test 深链映射到高级工具", () => {
     expect(resolveView("run", true)).toBe("advanced");
     expect(resolveView("test", true)).toBe("advanced");
+  });
+
+  it("旧深链进入高级工具的对应标签", () => {
+    expect(resolveInitialNavigation(new URLSearchParams("view=run"))).toEqual({
+      view: "advanced",
+      advancedTab: "run",
+    });
+    expect(resolveInitialNavigation(new URLSearchParams("view=test"))).toEqual({
+      view: "advanced",
+      advancedTab: "test",
+    });
+  });
+
+  it("显式 tab 优先于旧 view，且忽略无效 tab", () => {
+    expect(resolveInitialNavigation(new URLSearchParams("view=test&tab=run"))).toEqual({
+      view: "advanced",
+      advancedTab: "run",
+    });
+    expect(resolveInitialNavigation(new URLSearchParams("view=test&tab=unknown"))).toEqual({
+      view: "advanced",
+      advancedTab: "test",
+    });
   });
 
   it("关闭开关时高级工具页与旧深链安全返回状态总览", () => {

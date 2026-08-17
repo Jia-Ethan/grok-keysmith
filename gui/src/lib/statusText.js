@@ -14,6 +14,18 @@ const RAW_MESSAGE_PATTERNS = [
     pattern: /interrupted|residual|journal/i,
     key: "raw.residue",
   },
+  {
+    pattern: /backup.*(?:missing|abnormal|integrity)|previous manifest backup/i,
+    key: "raw.backupIssue",
+  },
+  {
+    pattern: /hook/i,
+    key: "raw.hookIssue",
+  },
+  {
+    pattern: /(?:rule|config|manifest|grok-dir|hooks directory|managed .* node).*\b(?:node|directory|is)\b/i,
+    key: "raw.nodeIssue",
+  },
 ];
 
 export function translateRawMessage(value, t) {
@@ -22,9 +34,9 @@ export function translateRawMessage(value, t) {
   for (const { pattern, key } of RAW_MESSAGE_PATTERNS) {
     if (pattern.test(text)) return t(key);
   }
-  return text;
+  return t("raw.otherIssue");
 }
 
 export function translateRawList(values, t) {
-  return (values || []).map((value) => translateRawMessage(value, t)).filter(Boolean);
+  return [...new Set((values || []).map((value) => translateRawMessage(value, t)).filter(Boolean))];
 }

@@ -33,8 +33,7 @@ const ACTION_META = {
   deploy: { labelKey: "dash.startDeploy", variant: "default", Icon: Rocket },
 };
 
-// fixture=1 下 Dashboard 使用较重的数据：长路径、带 SHA 的提示词、
-// 数十个备份、drift/conflict，验证首页在这些输入下仍保持短而清晰。
+// fixture=1 下 Dashboard 使用较重的数据；fixtureState 可切换异常状态。
 const FIXTURE_BACKUPS = Array.from(
   { length: 36 },
   (_, index) => `grok-backup-202608${String(index + 1).padStart(2, "0")}-1200-abcdef0123456789.tar.gz`,
@@ -71,6 +70,23 @@ const FIXTURE_ENVELOPE = {
     conflicts: [],
   },
 };
+
+function fixtureEnvelope(state) {
+  const next = structuredClone(FIXTURE_ENVELOPE);
+  next.result.state = state;
+  if (state === "drift") next.result.drift = ["config content does not match managed after-state"];
+  if (state === "conflict") next.result.conflicts = ["managed rule node is directory"];
+  if (state === "recovery-required") next.result.residue = [".grok-keysmith-transaction-fixture"];
+  if (state === "inactive") next.result.compat = { present: false, matches_expected: false };
+  if (state === "not-installed") {
+    next.result.nodes.rule = { kind: "missing", fingerprint: null };
+    next.result.nodes.config = { kind: "missing" };
+    next.result.nodes.manifest = { kind: "missing" };
+    next.result.compat = { present: false, matches_expected: false };
+    next.result.manifest = null;
+  }
+  return next;
+}
 
 export function Dashboard() {
   const { t } = useTranslation();
@@ -118,8 +134,9 @@ export function Dashboard() {
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("fixture") === "1") {
-      setStatus(FIXTURE_ENVELOPE);
-      setLastStatus(FIXTURE_ENVELOPE);
+      const envelope = fixtureEnvelope(params.get("fixtureState") || "active-aligned");
+      setStatus(envelope);
+      setLastStatus(envelope);
       return;
     }
     if (cliInfo.checked && cliInfo.path && !status) refresh();
@@ -154,7 +171,11 @@ export function Dashboard() {
             <Terminal className="mx-auto size-10 text-muted-foreground" aria-hidden="true" />
           )}
           <p className="mt-4 text-sm">{t(cliInfo.error ? "dash.cliCheckFailed" : "dash.noCli")}</p>
-          {cliInfo.error ? <pre className="log-block mt-4 text-left" role="alert">{cliInfo.error}</pre> : null}
+          {cliInfo.error ? (
+            <TechnicalDetails>
+              <pre className="log-block mt-2 text-left" role="alert">{cliInfo.error}</pre>
+            </TechnicalDetails>
+          ) : null}
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Button onClick={retryCli}>{t("dash.retryCli")}</Button>
             <Button variant="outline" onClick={() => setView("settings")}>{t("dash.noCliAction")}</Button>
@@ -168,7 +189,10 @@ export function Dashboard() {
             <AlertTriangle className="size-4" />
             {t("dash.error")}
           </div>
-          <pre className="log-block mt-3">{String(error.message || error)}</pre>
+          <p className="mt-2 text-sm text-muted-foreground">{t("dash.errorHint")}</p>
+          <TechnicalDetails>
+            <pre className="log-block mt-2">{String(error.message || error)}</pre>
+          </TechnicalDetails>
         </div>
       )}
 
@@ -205,7 +229,7 @@ export function Dashboard() {
             ) : null}
           </div>
 
-          <div className="card-glass p-5">
+          {model.health.length > 0 ? <div className="card-glass p-5">
             <h2 className="text-sm font-semibold">{t("dash.health")}</h2>
             <ul className="mt-3 grid gap-2 text-sm">
               {model.health.map((row) => (
@@ -230,7 +254,7 @@ export function Dashboard() {
             <TechnicalDetails>
               <pre className="log-block mt-2">{JSON.stringify(model.technical, null, 2)}</pre>
             </TechnicalDetails>
-          </div>
+          </div> : null}
         </div>
       )}
     </div>

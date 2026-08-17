@@ -30,6 +30,9 @@ export function SettingsView() {
   const [diagnostics, setDiagnostics] = React.useState(null);
   const [diagLoading, setDiagLoading] = React.useState(false);
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
+  const grokVersion = diagnostics?.inspect?.grokVersion
+    || diagnostics?.inspect?.grok_version
+    || "—";
 
   function patch(next) {
     const saved = saveSettings(next);
@@ -187,6 +190,7 @@ export function SettingsView() {
           <dl className="mt-3 grid gap-1 font-mono text-xs">
             <div>Desktop {buildInfo.desktopVersion}</div>
             <div>CLI {cliInfo.version || "—"}</div>
+            <div>Grok {grokVersion}</div>
             <div>{cliInfo.runtime ? t(`runtime.${cliInfo.runtime}`) : "—"}</div>
             <div>{buildInfo.channel}</div>
             <div>{buildInfo.sourceCommit || "development"}</div>

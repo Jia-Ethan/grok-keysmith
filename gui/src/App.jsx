@@ -14,7 +14,11 @@ import { Deploy } from "@/views/Deploy";
 import { AdvancedTools } from "@/views/AdvancedTools";
 import { Manage } from "@/views/Manage";
 import { SettingsView } from "@/views/SettingsView";
-import { resolveView, LEGACY_ADVANCED_VIEWS } from "@/lib/navigation";
+import {
+  resolveInitialNavigation,
+  resolveView,
+  LEGACY_ADVANCED_VIEWS,
+} from "@/lib/navigation";
 
 function useTheme() {
   const [theme, setTheme] = React.useState(() => getSettings().theme);
@@ -41,18 +45,14 @@ function useTheme() {
 export default function App() {
   const { view } = useAppState();
   useTheme();
-  const initialParams = React.useMemo(
-    () => new URLSearchParams(window.location.search),
+  const initialNavigation = React.useMemo(
+    () => resolveInitialNavigation(new URLSearchParams(window.location.search)),
     [],
   );
-  const advancedTab = initialParams.get("tab");
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    let next = params.get("view");
-    // 兼容旧的 run/test 一级入口：映射到高级工具对应标签。
-    if (LEGACY_ADVANCED_VIEWS.includes(next)) next = "advanced";
-    if (next) setView(next);
+    if (initialNavigation.view) setView(initialNavigation.view);
     const theme = params.get("theme");
     if (theme) document.documentElement.classList.toggle("dark", theme === "dark");
     if (params.get("fixture") === "1") {
@@ -64,7 +64,7 @@ export default function App() {
         checked: true,
       });
     }
-  }, []);
+  }, [initialNavigation]);
 
   React.useEffect(() => {
     if (new URLSearchParams(window.location.search).get("fixture") === "1") return;
@@ -122,7 +122,7 @@ export default function App() {
   const views = {
     dashboard: <Dashboard />,
     deploy: <Deploy />,
-    advanced: <AdvancedTools initialTab={advancedTab} />,
+    advanced: <AdvancedTools initialTab={initialNavigation.advancedTab} />,
     manage: <Manage />,
     settings: <SettingsView />,
   };

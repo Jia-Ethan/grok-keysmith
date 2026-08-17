@@ -6,6 +6,22 @@ export const ADVANCED_NAV_KEY = "advanced";
 export const TAIL_NAV = ["settings"];
 export const LEGACY_ADVANCED_VIEWS = ["run", "test"];
 
+function normalizeAdvancedTab(value) {
+  return LEGACY_ADVANCED_VIEWS.includes(value) ? value : null;
+}
+
+/**
+ * 解析启动深链。显式 tab 优先；旧的 view=run/test 则同时决定高级工具标签。
+ */
+export function resolveInitialNavigation(params) {
+  const requestedView = params.get("view");
+  const legacyTab = normalizeAdvancedTab(requestedView);
+  return {
+    view: legacyTab ? ADVANCED_NAV_KEY : requestedView,
+    advancedTab: normalizeAdvancedTab(params.get("tab")) || legacyTab,
+  };
+}
+
 export function buildNav(showAdvancedTools) {
   return showAdvancedTools
     ? [...BASE_NAV, ADVANCED_NAV_KEY, ...TAIL_NAV]

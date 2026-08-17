@@ -10,6 +10,18 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
   const hooks = result.hooks || {};
   const activeHooks = hooks.active?.length || 0;
   const disabledHooks = hooks.disabled?.length || 0;
+  const nodes = result.nodes || {};
+  const ruleKind = nodes.rule?.kind || "missing";
+  const ruleOk = ruleKind === "regular";
+  const configKind = nodes.config?.kind || "missing";
+  const configNodeOk = ["regular", "missing"].includes(configKind);
+  const compat = result.compat || {};
+  const issues = [...drift, ...conflicts];
+  const ruleIssues = issues.filter((item) => /\brule\b/i.test(String(item)));
+  const hookIssues = issues.filter((item) => /hook/i.test(String(item)));
+  const configIssues = issues.filter((item) => (
+    !ruleIssues.includes(item) && !hookIssues.includes(item)
+  ));
 
   const primaryAction = (() => {
     if (state === "recovery-required") return { key: "recover", view: "manage" };
@@ -18,21 +30,32 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
     return null;
   })();
 
-  const health = [
-    { key: "rule", ok: state === "active-aligned", detail: "" },
+  const health = state === "not-installed" ? [] : [
+    {
+      key: "rule",
+      ok: ruleOk && ruleIssues.length === 0,
+      detail: ruleIssues.length > 0
+        ? translateRawList(ruleIssues, t).join("；")
+        : (ruleOk ? "" : t("dash.nodeIssue")),
+    },
     {
       key: "config",
-      ok: drift.length === 0 && conflicts.length === 0,
-      detail: drift.length + conflicts.length > 0
-        ? translateRawList([...drift, ...conflicts], t).join("；")
-        : "",
+      ok: configNodeOk && configIssues.length === 0
+        && compat.present === true && compat.matches_expected === true,
+      detail: configIssues.length > 0
+        ? translateRawList(configIssues, t).join("；")
+        : (!configNodeOk || compat.present !== true || compat.matches_expected !== true
+          ? t("dash.configInactive")
+          : ""),
     },
     {
       key: "hooks",
-      ok: activeHooks === 0,
-      detail: activeHooks + disabledHooks > 0
+      ok: activeHooks === 0 && hookIssues.length === 0,
+      detail: hookIssues.length > 0
+        ? translateRawList(hookIssues, t).join("；")
+        : (activeHooks + disabledHooks > 0
         ? t("dash.hooksDetail", { active: activeHooks, disabled: disabledHooks })
-        : "",
+        : ""),
     },
     {
       key: "recovery",

@@ -12,7 +12,12 @@ import { useAppState } from "@/hooks/useAppState";
 import { beginExclusiveOperation, endOperation, setLastStatus } from "@/lib/store";
 import { getSettings } from "@/lib/settings";
 import { comparePreviewBindings, createPreviewBinding } from "@/lib/contract";
-import { managePlanSummary } from "@/lib/previewPresentation";
+import {
+  managePlanSummary,
+  manageStatusPresentation,
+  operationIssuePresentation,
+  previewGatePresentation,
+} from "@/lib/previewPresentation";
 import { cn } from "@/lib/utils";
 
 const OPERATIONS = [
@@ -35,31 +40,39 @@ const APPLY_ARGS = {
 
 export function Manage() {
   const { t } = useTranslation();
-  const { cliInfo } = useAppState();
+  const { cliInfo, lastStatus } = useAppState();
   const [preview, setPreview] = React.useState(null);
   const [binding, setBinding] = React.useState(null);
   const [kind, setKind] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [error, setError] = React.useState("");
-  const [backups, setBackups] = React.useState([]);
-  const [residue, setResidue] = React.useState([]);
+  const [error, setError] = React.useState(null);
+  const [backups, setBackups] = React.useState(() => lastStatus?.result?.backups || []);
+  const [statusResult, setStatusResult] = React.useState(() => lastStatus?.result || null);
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
   const cliReady = outsideTauri || (cliInfo.checked && Boolean(cliInfo.path));
   const cliUnavailable = !outsideTauri && cliInfo.checked && !cliInfo.path;
-  const hasResidue = residue.length > 0;
+  const statusModel = manageStatusPresentation(statusResult, t);
+
+  function showIssue(issue) {
+    setError(issue);
+  }
+
+  function showRawIssue(values, fallbackKey = "manage.failed") {
+    showIssue(operationIssuePresentation({ values, fallbackKey }, t));
+  }
 
   const loadStatus = React.useCallback(async () => {
     if (!cliReady) return null;
     try {
       const envelope = await fetchStatus();
-      setError("");
+      setError(null);
       setBackups(envelope.result?.backups || []);
-      setResidue(envelope.result?.residue || []);
+      setStatusResult(envelope.result || null);
       setLastStatus(envelope);
       return envelope;
     } catch (err) {
-      if (!isTauriMissing(err)) setError(String(err.message || err));
+      if (!isTauriMissing(err)) showRawIssue(err.message || err, "manage.statusFailed");
       return null;
     }
   }, [cliReady]);
@@ -80,17 +93,20 @@ export function Manage() {
 
   async function previewOp(nextKind) {
     if (!cliReady) {
-      setError(cliInfo.error || t("common.cliUnavailable"));
+      showRawIssue(cliInfo.error || t("common.cliUnavailable"), "manage.statusFailed");
       return;
     }
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const envelope = await fetchPreview(PREVIEW_ARGS[nextKind]);
       if (!envelope.gate.ok) {
-        invalidatePreview();
-        setError(envelope.gate.reason || (envelope.diagnostics || []).join("\n"));
+        setKind(nextKind);
+        setPreview(envelope);
+        setBinding(null);
+        setConfirmOpen(false);
+        showIssue(previewGatePresentation(envelope, "manage.previewBlocked", t));
         return;
       }
       const nextBinding = await createPreviewBinding({
@@ -104,7 +120,7 @@ export function Manage() {
       setConfirmOpen(true);
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err, "manage.previewFailed");
     } finally {
       setBusy(false);
     }
@@ -115,13 +131,13 @@ export function Manage() {
     const lease = beginExclusiveOperation();
     if (!lease) return;
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const freshPreview = await fetchPreview(PREVIEW_ARGS[kind]);
       if (!freshPreview.gate.ok) {
         invalidatePreview();
-        setError(freshPreview.gate.reason || (freshPreview.diagnostics || []).join("\n"));
+        showIssue(previewGatePresentation(freshPreview, "manage.previewBlocked", t));
         return;
       }
       const freshBinding = await createPreviewBinding({
@@ -132,14 +148,14 @@ export function Manage() {
       const comparison = comparePreviewBindings(binding, freshBinding);
       if (!comparison.ok) {
         invalidatePreview();
-        setError(t("manage.staleFields", { fields: comparison.changed.join(", ") || "token" }));
+        showIssue({ summary: t("manage.stale"), details: t("manage.staleFields", { fields: comparison.changed.join(", ") || "token" }) });
         return;
       }
 
       const previewToken = freshPreview.plan?.confirmation_token;
       if (!previewToken) {
         invalidatePreview();
-        setError(t("manage.staleFields", { fields: "confirmation_token" }));
+        showIssue({ summary: t("manage.stale"), details: t("manage.staleFields", { fields: "confirmation_token" }) });
         return;
       }
       const result = await cliExecute([
@@ -148,7 +164,7 @@ export function Manage() {
         previewToken,
       ]);
       if (!result.ok) {
-        setError((result.diagnostics || []).join("\n") || t("manage.failed"));
+        showRawIssue(result.diagnostics || [], "manage.failed");
         return;
       }
 
@@ -170,19 +186,19 @@ export function Manage() {
       if (status) {
         setLastStatus(status);
         setBackups(status.result?.backups || []);
-        setResidue(status.result?.residue || []);
+        setStatusResult(status.result || null);
       } else {
         setLastStatus(null);
       }
       invalidatePreview();
       if (verificationErrors.length) {
-        setError(`${t("manage.verifyFailed")}\n${verificationErrors.join("\n")}`);
+        showIssue({ summary: t("manage.verifyFailed"), details: verificationErrors.join("\n") });
       } else {
         toast.success(t("manage.complete", { operation: t(`manage.operation.${kind}`) }));
       }
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err);
     } finally {
       endOperation(lease);
       setBusy(false);
@@ -200,14 +216,18 @@ export function Manage() {
       <div className="grid gap-3" aria-busy={busy}>
         {OPERATIONS.map(({ kind: opKind, icon: Icon, danger }) => {
           const isRecover = opKind === "recover";
-          const enabled = cliReady && (!isRecover || hasResidue);
+          const enabled = cliReady && (
+            (opKind === "uninstall" && statusModel.canUninstall)
+            || (opKind === "restore" && statusModel.canRestore)
+            || (opKind === "recover" && statusModel.canRecover)
+          );
           return (
             <div
               key={opKind}
               data-operation={opKind}
               className={cn(
                 "card-glass flex flex-wrap items-center justify-between gap-3 p-5",
-                isRecover && hasResidue && "border-warn/50",
+                isRecover && statusModel.canRecover && "border-warn/50",
               )}
             >
               <div className="flex min-w-0 items-start gap-3">
@@ -215,7 +235,7 @@ export function Manage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-sm font-semibold">{t(`manage.operation.${opKind}`)}</h2>
-                    {isRecover && hasResidue ? (
+                    {isRecover && statusModel.canRecover ? (
                       <Badge variant="yellow">{t("manage.recoverAvailable")}</Badge>
                     ) : null}
                   </div>
@@ -235,9 +255,35 @@ export function Manage() {
       </div>
 
       {cliUnavailable ? (
-        <pre className="log-block mt-4" role="alert">{cliInfo.error || t("common.cliUnavailable")}</pre>
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{t("common.cliUnavailable")}</p>
+          {cliInfo.error ? (
+            <TechnicalDetails><pre className="log-block mt-2">{cliInfo.error}</pre></TechnicalDetails>
+          ) : null}
+        </div>
       ) : null}
-      {error ? <pre className="log-block mt-4" role="alert">{error}</pre> : null}
+      {error ? (
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{error.summary}</p>
+          {error.details ? (
+            <TechnicalDetails><pre className="log-block mt-2">{error.details}</pre></TechnicalDetails>
+          ) : null}
+        </div>
+      ) : null}
+
+      {statusModel.issueLines.length ? (
+        <div className="card-glass mt-4 border-warn/40 p-5" role="status">
+          <h2 className="text-sm font-semibold">{t("manage.issues")}</h2>
+          <ul className="mt-3 grid gap-2 text-sm">
+            {statusModel.issueLines.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          {statusModel.technicalDetails ? (
+            <TechnicalDetails>
+              <pre className="log-block mt-2">{statusModel.technicalDetails}</pre>
+            </TechnicalDetails>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="card-glass mt-4 p-5">
         <div className="flex items-center justify-between gap-3">

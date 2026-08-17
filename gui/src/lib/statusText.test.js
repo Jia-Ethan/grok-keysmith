@@ -22,8 +22,8 @@ describe("statusText 原始诊断翻译", () => {
     expect(translateRawMessage("interrupted journals remain", t)).toBe("存在中断操作残留");
   });
 
-  it("未知诊断保留原文", () => {
-    expect(translateRawMessage("some unknown failure", t)).toBe("some unknown failure");
+  it("未知诊断使用通用用户文案", () => {
+    expect(translateRawMessage("some unknown failure", t)).toBe("raw.otherIssue");
   });
 
   it("空值返回空字符串", () => {
@@ -32,7 +32,12 @@ describe("statusText 原始诊断翻译", () => {
   });
 
   it("列表翻译过滤空值", () => {
-    expect(translateRawList(["config content does not match managed after-state", "", null], t))
+    expect(translateRawList([
+      "config content does not match managed after-state",
+      "rule content does not match managed after-state",
+      "",
+      null,
+    ], t))
       .toEqual(["Grok 配置已发生变化"]);
   });
 });

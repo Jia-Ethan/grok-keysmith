@@ -1,6 +1,46 @@
 // 部署/管理预览与确认的用户语言呈现。
-// token、完整 SHA、compat markers、stripped config 等只在内部 binding 与
-// 默认折叠的技术详情中使用，不进入普通界面正文与确认弹窗。
+// token、完整 SHA、原始诊断等只在内部 binding 与默认折叠的技术详情中使用。
+
+function rawValues(...values) {
+  const flattened = values.flat(Infinity)
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  return [...new Set(flattened)];
+}
+
+function issueKey(value) {
+  const text = String(value ?? "").toLowerCase();
+  if (/interrupted|journal|residu|recover/.test(text)) return "recovery";
+  if (/lock|busy|already in use|another operation/.test(text)) return "busy";
+  if (/hook/.test(text)) return "hooks";
+  if (/drift|does not match|changed|stale|rebound/.test(text)) return "changed";
+  if (/conflict|unexpected|symlink|not a directory|node is|invalid/.test(text)) return "conflict";
+  return "generic";
+}
+
+function userIssueLines(values, t) {
+  return [...new Set(rawValues(values).map((value) => t(`common.issue.${issueKey(value)}`)))];
+}
+
+export function operationIssuePresentation({ values = [], fallbackKey }, t) {
+  const details = rawValues(values);
+  const issueLines = userIssueLines(details, t);
+  return {
+    summary: issueLines[0] || t(fallbackKey),
+    details: details.join("\n"),
+  };
+}
+
+export function previewGatePresentation(envelope, fallbackKey, t) {
+  return operationIssuePresentation({
+    values: [
+      envelope?.plan?.blockers || [],
+      envelope?.gate?.reason || "",
+      envelope?.diagnostics || [],
+    ],
+    fallbackKey,
+  }, t);
+}
 
 export function deployPreviewSummary(plan, sourceLabel, t) {
   const hooksToIsolate = plan?.hooks_to_isolate || [];
@@ -16,6 +56,7 @@ export function deployPreviewSummary(plan, sourceLabel, t) {
       ...(strippedCompat.length > 0 ? [t("deploy.stripCompat")] : []),
     ],
     blocked: blockers.length > 0,
+    issueLines: userIssueLines(blockers, t),
   };
 }
 
@@ -38,6 +79,33 @@ export function managePlanSummary(plan, kind, t) {
   }
   if (Array.isArray(plan?.blockers) && plan.blockers.length) {
     lines.push(t("deploy.blocked"));
+    lines.push(...userIssueLines(plan.blockers, t));
   }
   return lines;
+}
+
+export function manageStatusPresentation(result, t) {
+  const state = result?.state || "not-installed";
+  const hooks = result?.hooks || {};
+  const ownedDisabled = Array.isArray(hooks.owned_disabled) ? hooks.owned_disabled : [];
+  const residue = Array.isArray(result?.residue) ? result.residue : [];
+  const drift = Array.isArray(result?.drift) ? result.drift : [];
+  const conflicts = Array.isArray(result?.conflicts) ? result.conflicts : [];
+  const installed = state !== "not-installed" && (
+    Boolean(result?.manifest)
+    || result?.nodes?.rule?.kind === "regular"
+    || result?.compat?.present === true
+  );
+  const issueLines = [];
+  if (drift.length) issueLines.push(t("dash.summary.drift"));
+  if (conflicts.length) issueLines.push(t("dash.summary.conflict"));
+  if (residue.length) issueLines.push(t("dash.summary.recovery-required"));
+  return {
+    installed,
+    canUninstall: installed && residue.length === 0,
+    canRestore: ownedDisabled.length > 0 && residue.length === 0,
+    canRecover: residue.length > 0,
+    issueLines,
+    technicalDetails: rawValues(drift, conflicts, residue).join("\n"),
+  };
 }

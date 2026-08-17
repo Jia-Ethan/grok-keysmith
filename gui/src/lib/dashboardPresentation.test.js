@@ -31,6 +31,8 @@ const t = (key, params) => {
     "dash.hooksDetail": `active ${params?.active} / disabled ${params?.disabled}`,
     "dash.recoveryNeeded": "检测到事务残留",
     "dash.backupsCount": `备份 ${params?.count} 份`,
+    "dash.nodeIssue": "节点异常",
+    "dash.configInactive": "配置未生效",
   };
   return table[key] || key;
 };
@@ -93,6 +95,24 @@ describe("Dashboard 首层呈现", () => {
     expect(model.health.find((row) => row.key === "config").ok).toBe(false);
   });
 
+  it("配置漂移不会误报正常规则节点", () => {
+    const model = presentDashboard({
+      state: "drift",
+      result: makeResult({ drift: ["config content does not match managed after-state"] }),
+    }, t);
+    expect(model.health.find((row) => row.key === "rule").ok).toBe(true);
+    expect(model.health.find((row) => row.key === "config").ok).toBe(false);
+  });
+
+  it("规则异常只标记规则健康项", () => {
+    const model = presentDashboard({
+      state: "conflict",
+      result: makeResult({ conflicts: ["managed rule node is directory"] }),
+    }, t);
+    expect(model.health.find((row) => row.key === "rule").ok).toBe(false);
+    expect(model.health.find((row) => row.key === "config").ok).toBe(true);
+  });
+
   it("recovery-required 突出恢复中断操作", () => {
     const model = presentDashboard({
       state: "recovery-required",
@@ -112,6 +132,7 @@ describe("Dashboard 首层呈现", () => {
       result: makeResult({ state: "not-installed" }),
     }, t);
     expect(model.primaryAction).toEqual({ key: "deploy", view: "deploy" });
+    expect(model.health).toEqual([]);
   });
 
   it("hooks 仅在非零时渲染数量", () => {
