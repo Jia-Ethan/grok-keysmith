@@ -1,14 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCw, Terminal, AlertTriangle } from "lucide-react";
+import { RefreshCw, Terminal, AlertTriangle, Copy, Rocket, Wrench, Eye } from "lucide-react";
 import { toast } from "sonner";
-import {
-  fetchStatus,
-  grokInspect,
-  isTauriMissing,
-  readManifest,
-  resolveCli,
-} from "@/lib/api";
+import { fetchStatus, isTauriMissing, resolveCli } from "@/lib/api";
 import { useAppState } from "@/hooks/useAppState";
 import {
   beginCliCheck,
@@ -19,10 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/FadeIn";
-import { buildInfo } from "@/lib/buildInfo";
-import { fingerprintShort } from "@/lib/contract";
+import { TechnicalDetails } from "@/components/TechnicalDetails";
 import { cn } from "@/lib/utils";
 import { getSettings } from "@/lib/settings";
+import { presentDashboard } from "@/lib/dashboardPresentation";
 
 const STATE_VARIANT = {
   "active-aligned": "green",
@@ -33,12 +27,71 @@ const STATE_VARIANT = {
   "not-installed": "gray",
 };
 
+const ACTION_META = {
+  recover: { labelKey: "dash.recoverAction", variant: "warning", Icon: Wrench },
+  issues: { labelKey: "dash.inspectIssues", variant: "outline", Icon: Eye },
+  deploy: { labelKey: "dash.startDeploy", variant: "default", Icon: Rocket },
+};
+
+// fixture=1 下 Dashboard 使用较重的数据；fixtureState 可切换异常状态。
+const FIXTURE_BACKUPS = Array.from(
+  { length: 36 },
+  (_, index) => `grok-backup-202608${String(index + 1).padStart(2, "0")}-1200-abcdef0123456789.tar.gz`,
+);
+
+const FIXTURE_ENVELOPE = {
+  schema: "grok-keysmith.envelope.v1",
+  target: {
+    grok_dir:
+      "/tmp/fixture/users/someone-with-a-very-long-home-directory-name/Library/Application Support/Grok/.grok",
+  },
+  result: {
+    state: "active-aligned",
+    nodes: {
+      rule: {
+        kind: "regular",
+        fingerprint: {
+          sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898",
+          size: 8391,
+        },
+      },
+      config: { kind: "regular" },
+      manifest: { kind: "regular" },
+    },
+    compat: { present: true, matches_expected: true },
+    hooks: { active: [], disabled: [], owned_disabled: [], external_disabled: [] },
+    manifest: {
+      deployment_id: "fixture-deployment-0001",
+      prompt_sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898",
+    },
+    backups: FIXTURE_BACKUPS,
+    residue: [],
+    drift: [],
+    conflicts: [],
+  },
+};
+
+function fixtureEnvelope(state) {
+  const next = structuredClone(FIXTURE_ENVELOPE);
+  next.result.state = state;
+  if (state === "drift") next.result.drift = ["config content does not match managed after-state"];
+  if (state === "conflict") next.result.conflicts = ["managed rule node is directory"];
+  if (state === "recovery-required") next.result.residue = [".grok-keysmith-transaction-fixture"];
+  if (state === "inactive") next.result.compat = { present: false, matches_expected: false };
+  if (state === "not-installed") {
+    next.result.nodes.rule = { kind: "missing", fingerprint: null };
+    next.result.nodes.config = { kind: "missing" };
+    next.result.nodes.manifest = { kind: "missing" };
+    next.result.compat = { present: false, matches_expected: false };
+    next.result.manifest = null;
+  }
+  return next;
+}
+
 export function Dashboard() {
   const { t } = useTranslation();
   const { cliInfo, lastStatus } = useAppState();
   const [status, setStatus] = React.useState(lastStatus);
-  const [inspect, setInspect] = React.useState(null);
-  const [manifest, setManifest] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
 
@@ -46,23 +99,10 @@ export function Dashboard() {
     setLoading(true);
     setError(null);
     try {
+      // 首页刷新只获取 status，不再附带 inspect 与 manifest。
       const envelope = await fetchStatus();
       setStatus(envelope);
       setLastStatus(envelope);
-      const grokDir = envelope.target?.grok_dir;
-      if (grokDir) {
-        try {
-          setManifest(await readManifest(grokDir));
-        } catch {
-          setManifest(null);
-        }
-      }
-      try {
-        const inspectOut = await grokInspect();
-        setInspect(inspectOut.stdout ? JSON.parse(inspectOut.stdout) : inspectOut);
-      } catch {
-        setInspect(null);
-      }
     } catch (err) {
       if (isTauriMissing(err)) return;
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -94,25 +134,7 @@ export function Dashboard() {
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("fixture") === "1") {
-      const envelope = {
-        schema: "grok-keysmith.envelope.v1",
-        target: { grok_dir: "/tmp/fixture/.grok" },
-        result: {
-          state: "active-aligned",
-          nodes: {
-            rule: { kind: "regular", fingerprint: { sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898", size: 8391 } },
-            config: { kind: "regular" },
-            manifest: { kind: "regular" },
-          },
-          compat: { present: true, matches_expected: true },
-          hooks: { active: [], disabled: [], owned_disabled: [], external_disabled: [] },
-          manifest: { deployment_id: "fixture", prompt_sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898" },
-          backups: [],
-          residue: [],
-          drift: [],
-          conflicts: [],
-        },
-      };
+      const envelope = fixtureEnvelope(params.get("fixtureState") || "active-aligned");
       setStatus(envelope);
       setLastStatus(envelope);
       return;
@@ -122,6 +144,8 @@ export function Dashboard() {
 
   const result = status?.result;
   const state = result?.state || "not-installed";
+  const model = result ? presentDashboard({ state, grokDir: status?.target?.grok_dir || "", result }, t) : null;
+  const action = model?.primaryAction ? ACTION_META[model.primaryAction.key] : null;
 
   return (
     <div>
@@ -147,7 +171,11 @@ export function Dashboard() {
             <Terminal className="mx-auto size-10 text-muted-foreground" aria-hidden="true" />
           )}
           <p className="mt-4 text-sm">{t(cliInfo.error ? "dash.cliCheckFailed" : "dash.noCli")}</p>
-          {cliInfo.error ? <pre className="log-block mt-4 text-left" role="alert">{cliInfo.error}</pre> : null}
+          {cliInfo.error ? (
+            <TechnicalDetails>
+              <pre className="log-block mt-2 text-left" role="alert">{cliInfo.error}</pre>
+            </TechnicalDetails>
+          ) : null}
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Button onClick={retryCli}>{t("dash.retryCli")}</Button>
             <Button variant="outline" onClick={() => setView("settings")}>{t("dash.noCliAction")}</Button>
@@ -161,78 +189,74 @@ export function Dashboard() {
             <AlertTriangle className="size-4" />
             {t("dash.error")}
           </div>
-          <pre className="log-block mt-3">{String(error.message || error)}</pre>
+          <p className="mt-2 text-sm text-muted-foreground">{t("dash.errorHint")}</p>
+          <TechnicalDetails>
+            <pre className="log-block mt-2">{String(error.message || error)}</pre>
+          </TechnicalDetails>
         </div>
       )}
 
-      {result && (
+      {model && (
         <div className="flex flex-col gap-4">
           <div className="card-glass p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={STATE_VARIANT[state] || "gray"}>{t(`state.${state}`)}</Badge>
-              <Badge variant="outline">Desktop {buildInfo.desktopVersion}</Badge>
-              <Badge variant="outline">{cliInfo.version || "CLI"}</Badge>
-              {cliInfo.runtime ? <Badge variant="outline">{t(`runtime.${cliInfo.runtime}`)}</Badge> : null}
-              <Badge variant="outline">{buildInfo.channel}</Badge>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Badge variant={STATE_VARIANT[model.state] || "gray"}>{t(`state.${model.state}`)}</Badge>
+              {action && (
+                <Button
+                  variant={action.variant}
+                  size="sm"
+                  onClick={() => setView(model.primaryAction.view)}
+                >
+                  <action.Icon className="size-3.5" />
+                  {t(action.labelKey)}
+                </Button>
+              )}
             </div>
-            <dl className="mt-4 grid gap-2 text-sm">
-              <Row label="prompt" value={result.manifest?.prompt_sha256 || result.nodes?.rule?.fingerprint?.sha256 || "—"} />
-              <Row label="source commit" value={buildInfo.sourceCommit || "development"} />
-              <Row label="grok dir" value={status.target?.grok_dir || "—"} />
-            </dl>
+            <p className="mt-3 text-sm">{t(`dash.summary.${model.state}`)}</p>
+            {model.grokDir ? (
+              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="shrink-0">{t("dash.grokDir")}</span>
+                <code className="min-w-0 flex-1 truncate font-mono" title={model.grokDir}>{model.grokDir}</code>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t("common.copy")}
+                  onClick={() => navigator.clipboard?.writeText(model.grokDir)}
+                >
+                  <Copy className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
           </div>
 
-          <div className="card-glass p-5">
-            <h2 className="text-sm font-semibold">{t("dash.managed")}</h2>
-            <dl className="mt-3 grid gap-2 text-sm">
-              <Row label={t("dash.rule")} value={`${result.nodes?.rule?.kind || "—"} ${fingerprintShort(result.nodes?.rule?.fingerprint)}`} />
-              <Row label={t("dash.compat")} value={result.compat?.present ? "present" : "absent"} />
-              <Row label={t("dash.hooks")} value={`active ${result.hooks?.active?.length || 0} / disabled ${result.hooks?.disabled?.length || 0}`} />
-              <Row label={t("dash.manifest")} value={result.manifest?.deployment_id || result.nodes?.manifest?.kind || "—"} />
-              <Row label={t("dash.backups")} value={(result.backups || []).join(", ") || "—"} />
-              <Row label={t("dash.residue")} value={(result.residue || []).join(", ") || "—"} />
-              <Row label="drift" value={(result.drift || []).join("; ") || "—"} />
-              <Row label="conflict" value={(result.conflicts || []).join("; ") || "—"} />
-            </dl>
-            {state === "recovery-required" && (
-              <Button className="mt-4" variant="warning" onClick={() => setView("manage")}>
-                {t("dash.recoverAction")}
-              </Button>
-            )}
-          </div>
-
-          <div className="card-glass p-5">
-            <h2 className="text-sm font-semibold">{t("dash.inspect")}</h2>
-            {inspect ? (
-              <pre className="log-block mt-3">{JSON.stringify({
-                grokVersion: inspect.grokVersion,
-                channel: inspect.channel,
-                projectInstructions: inspect.projectInstructions,
-                externalCompat: inspect.externalCompat,
-                hooks: inspect.hooks,
-              }, null, 2)}</pre>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">—</p>
-            )}
-          </div>
-
-          {manifest && (
-            <div className="card-glass p-5">
-              <h2 className="text-sm font-semibold">{t("dash.manifest")}</h2>
-              <pre className="log-block mt-3">{JSON.stringify(manifest, null, 2)}</pre>
-            </div>
-          )}
+          {model.health.length > 0 ? <div className="card-glass p-5">
+            <h2 className="text-sm font-semibold">{t("dash.health")}</h2>
+            <ul className="mt-3 grid gap-2 text-sm">
+              {model.health.map((row) => (
+                <li key={row.key} className="flex items-start gap-2">
+                  <span
+                    className={cn(
+                      "mt-1.5 size-2 shrink-0 rounded-full",
+                      row.ok ? "bg-[var(--ok)]" : "bg-[var(--warn)]",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <span>{t(`dash.${row.key === "config" ? "grokConfig" : row.key}`)}</span>
+                    {row.detail ? <p className="text-xs text-muted-foreground">{row.detail}</p> : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {model.backupsSummary ? (
+              <p className="mt-3 text-xs text-muted-foreground">{model.backupsSummary}</p>
+            ) : null}
+            <TechnicalDetails>
+              <pre className="log-block mt-2">{JSON.stringify(model.technical, null, 2)}</pre>
+            </TechnicalDetails>
+          </div> : null}
         </div>
       )}
-    </div>
-  );
-}
-
-function Row({ label, value }) {
-  return (
-    <div className="grid grid-cols-1 gap-1 sm:grid-cols-[120px_1fr] sm:gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-all font-mono text-xs">{value}</dd>
     </div>
   );
 }

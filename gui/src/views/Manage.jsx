@@ -1,14 +1,30 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Trash2, History, LifeBuoy } from "lucide-react";
 import { cliExecute, fetchPreview, fetchStatus, isTauriMissing } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TechnicalDetails } from "@/components/TechnicalDetails";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/FadeIn";
 import { useAppState } from "@/hooks/useAppState";
 import { beginExclusiveOperation, endOperation, setLastStatus } from "@/lib/store";
 import { getSettings } from "@/lib/settings";
 import { comparePreviewBindings, createPreviewBinding } from "@/lib/contract";
+import {
+  managePlanSummary,
+  manageStatusPresentation,
+  operationIssuePresentation,
+  previewGatePresentation,
+} from "@/lib/previewPresentation";
+import { cn } from "@/lib/utils";
+
+const OPERATIONS = [
+  { kind: "uninstall", icon: Trash2, danger: true },
+  { kind: "restore", icon: History, danger: false },
+  { kind: "recover", icon: LifeBuoy, danger: true },
+];
 
 const PREVIEW_ARGS = {
   uninstall: ["--uninstall"],
@@ -24,28 +40,39 @@ const APPLY_ARGS = {
 
 export function Manage() {
   const { t } = useTranslation();
-  const { cliInfo } = useAppState();
+  const { cliInfo, lastStatus } = useAppState();
   const [preview, setPreview] = React.useState(null);
   const [binding, setBinding] = React.useState(null);
   const [kind, setKind] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [error, setError] = React.useState("");
-  const [backups, setBackups] = React.useState([]);
+  const [error, setError] = React.useState(null);
+  const [backups, setBackups] = React.useState(() => lastStatus?.result?.backups || []);
+  const [statusResult, setStatusResult] = React.useState(() => lastStatus?.result || null);
   const outsideTauri = typeof window !== "undefined" && !window.__TAURI_INTERNALS__;
   const cliReady = outsideTauri || (cliInfo.checked && Boolean(cliInfo.path));
   const cliUnavailable = !outsideTauri && cliInfo.checked && !cliInfo.path;
+  const statusModel = manageStatusPresentation(statusResult, t);
+
+  function showIssue(issue) {
+    setError(issue);
+  }
+
+  function showRawIssue(values, fallbackKey = "manage.failed") {
+    showIssue(operationIssuePresentation({ values, fallbackKey }, t));
+  }
 
   const loadStatus = React.useCallback(async () => {
     if (!cliReady) return null;
     try {
       const envelope = await fetchStatus();
-      setError("");
+      setError(null);
       setBackups(envelope.result?.backups || []);
+      setStatusResult(envelope.result || null);
       setLastStatus(envelope);
       return envelope;
     } catch (err) {
-      if (!isTauriMissing(err)) setError(String(err.message || err));
+      if (!isTauriMissing(err)) showRawIssue(err.message || err, "manage.statusFailed");
       return null;
     }
   }, [cliReady]);
@@ -66,17 +93,20 @@ export function Manage() {
 
   async function previewOp(nextKind) {
     if (!cliReady) {
-      setError(cliInfo.error || t("common.cliUnavailable"));
+      showRawIssue(cliInfo.error || t("common.cliUnavailable"), "manage.statusFailed");
       return;
     }
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const envelope = await fetchPreview(PREVIEW_ARGS[nextKind]);
       if (!envelope.gate.ok) {
-        invalidatePreview();
-        setError(envelope.gate.reason || (envelope.diagnostics || []).join("\n"));
+        setKind(nextKind);
+        setPreview(envelope);
+        setBinding(null);
+        setConfirmOpen(false);
+        showIssue(previewGatePresentation(envelope, "manage.previewBlocked", t));
         return;
       }
       const nextBinding = await createPreviewBinding({
@@ -90,7 +120,7 @@ export function Manage() {
       setConfirmOpen(true);
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err, "manage.previewFailed");
     } finally {
       setBusy(false);
     }
@@ -101,13 +131,13 @@ export function Manage() {
     const lease = beginExclusiveOperation();
     if (!lease) return;
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       const settings = getSettings();
       const freshPreview = await fetchPreview(PREVIEW_ARGS[kind]);
       if (!freshPreview.gate.ok) {
         invalidatePreview();
-        setError(freshPreview.gate.reason || (freshPreview.diagnostics || []).join("\n"));
+        showIssue(previewGatePresentation(freshPreview, "manage.previewBlocked", t));
         return;
       }
       const freshBinding = await createPreviewBinding({
@@ -118,14 +148,14 @@ export function Manage() {
       const comparison = comparePreviewBindings(binding, freshBinding);
       if (!comparison.ok) {
         invalidatePreview();
-        setError(t("manage.staleFields", { fields: comparison.changed.join(", ") || "token" }));
+        showIssue({ summary: t("manage.stale"), details: t("manage.staleFields", { fields: comparison.changed.join(", ") || "token" }) });
         return;
       }
 
       const previewToken = freshPreview.plan?.confirmation_token;
       if (!previewToken) {
         invalidatePreview();
-        setError(t("manage.staleFields", { fields: "confirmation_token" }));
+        showIssue({ summary: t("manage.stale"), details: t("manage.staleFields", { fields: "confirmation_token" }) });
         return;
       }
       const result = await cliExecute([
@@ -134,7 +164,7 @@ export function Manage() {
         previewToken,
       ]);
       if (!result.ok) {
-        setError((result.diagnostics || []).join("\n") || t("manage.failed"));
+        showRawIssue(result.diagnostics || [], "manage.failed");
         return;
       }
 
@@ -156,18 +186,19 @@ export function Manage() {
       if (status) {
         setLastStatus(status);
         setBackups(status.result?.backups || []);
+        setStatusResult(status.result || null);
       } else {
         setLastStatus(null);
       }
       invalidatePreview();
       if (verificationErrors.length) {
-        setError(`${t("manage.verifyFailed")}\n${verificationErrors.join("\n")}`);
+        showIssue({ summary: t("manage.verifyFailed"), details: verificationErrors.join("\n") });
       } else {
         toast.success(t("manage.complete", { operation: t(`manage.operation.${kind}`) }));
       }
     } catch (err) {
       if (isTauriMissing(err)) return;
-      setError(String(err.message || err));
+      showRawIssue(err.message || err);
     } finally {
       endOperation(lease);
       setBusy(false);
@@ -175,40 +206,122 @@ export function Manage() {
     }
   }
 
+  const previewSummary = preview ? managePlanSummary(preview.plan || {}, kind, t) : [];
+  const grokDir = preview?.target?.grok_dir || "";
+
   return (
     <div>
       <FadeIn><h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("manage.title")}</h1></FadeIn>
-      <div className="card-glass flex flex-wrap gap-2 p-5" aria-busy={busy}>
-        <Button variant="destructive" disabled={busy || !cliReady} onClick={() => previewOp("uninstall")}>
-          {t("manage.uninstall")}
-        </Button>
-        <Button variant="outline" disabled={busy || !cliReady} onClick={() => previewOp("restore")}>
-          {t("manage.restoreHooks")}
-        </Button>
-        <Button variant="warning" disabled={busy || !cliReady} onClick={() => previewOp("recover")}>
-          {t("manage.recover")}
-        </Button>
+
+      <div className="grid gap-3" aria-busy={busy}>
+        {OPERATIONS.map(({ kind: opKind, icon: Icon, danger }) => {
+          const isRecover = opKind === "recover";
+          const enabled = cliReady && (
+            (opKind === "uninstall" && statusModel.canUninstall)
+            || (opKind === "restore" && statusModel.canRestore)
+            || (opKind === "recover" && statusModel.canRecover)
+          );
+          return (
+            <div
+              key={opKind}
+              data-operation={opKind}
+              className={cn(
+                "card-glass flex flex-wrap items-center justify-between gap-3 p-5",
+                isRecover && statusModel.canRecover && "border-warn/50",
+              )}
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <Icon className={cn("mt-0.5 size-5 shrink-0", danger ? "text-danger" : "text-muted-foreground")} aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold">{t(`manage.operation.${opKind}`)}</h2>
+                    {isRecover && statusModel.canRecover ? (
+                      <Badge variant="yellow">{t("manage.recoverAvailable")}</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{t(`manage.${opKind === "restore" ? "restoreHooks" : opKind}Desc`)}</p>
+                </div>
+              </div>
+              <Button
+                variant={danger ? (isRecover ? "warning" : "destructive") : "outline"}
+                disabled={busy || !enabled}
+                onClick={() => previewOp(opKind)}
+              >
+                {t("manage.previewAction")}
+              </Button>
+            </div>
+          );
+        })}
       </div>
+
       {cliUnavailable ? (
-        <pre className="log-block mt-4" role="alert">{cliInfo.error || t("common.cliUnavailable")}</pre>
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{t("common.cliUnavailable")}</p>
+          {cliInfo.error ? (
+            <TechnicalDetails><pre className="log-block mt-2">{cliInfo.error}</pre></TechnicalDetails>
+          ) : null}
+        </div>
       ) : null}
-      {error ? <pre className="log-block mt-4" role="alert">{error}</pre> : null}
+      {error ? (
+        <div className="card-glass mt-4 border-danger/40 p-4" role="alert">
+          <p className="text-sm text-danger">{error.summary}</p>
+          {error.details ? (
+            <TechnicalDetails><pre className="log-block mt-2">{error.details}</pre></TechnicalDetails>
+          ) : null}
+        </div>
+      ) : null}
+
+      {statusModel.issueLines.length ? (
+        <div className="card-glass mt-4 border-warn/40 p-5" role="status">
+          <h2 className="text-sm font-semibold">{t("manage.issues")}</h2>
+          <ul className="mt-3 grid gap-2 text-sm">
+            {statusModel.issueLines.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          {statusModel.technicalDetails ? (
+            <TechnicalDetails>
+              <pre className="log-block mt-2">{statusModel.technicalDetails}</pre>
+            </TechnicalDetails>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="card-glass mt-4 p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">{t("manage.backups")}</h2>
           <Button variant="ghost" size="sm" onClick={loadStatus} disabled={busy || !cliReady}>{t("common.refresh")}</Button>
         </div>
-        <pre className="log-block mt-3">{(backups || []).join("\n") || "—"}</pre>
+        {backups.length > 0 ? (
+          <>
+            <p className="mt-3 text-sm">{t("manage.backupsSummary", { count: backups.length })}</p>
+            <p className="mt-1 truncate text-xs text-muted-foreground" title={backups[backups.length - 1]}>
+              {t("manage.latestBackup", { name: backups[backups.length - 1] })}
+            </p>
+            <TechnicalDetails label={t("manage.backupList")}>
+              <pre className="log-block mt-2">{backups.join("\n")}</pre>
+            </TechnicalDetails>
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">{t("manage.backupsSummary", { count: 0 })}</p>
+        )}
       </div>
+
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={kind ? t(`manage.operation.${kind}`) : ""}
-        body={preview ? [JSON.stringify(preview.plan || {}, null, 2), binding?.token].filter(Boolean).join("\n") : ""}
+        body={[
+          grokDir ? t("dash.grokDir") + ": " + grokDir : "",
+          ...previewSummary,
+        ].filter(Boolean).join("\n")}
         danger={kind === "uninstall"}
         confirmDisabled={busy}
         onConfirm={apply}
       />
+      {preview ? (
+        <TechnicalDetails>
+          <pre className="log-block mt-2">{JSON.stringify(preview.plan || {}, null, 2)}</pre>
+        </TechnicalDetails>
+      ) : null}
     </div>
   );
 }

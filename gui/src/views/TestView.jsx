@@ -364,7 +364,7 @@ export function TestView() {
 
   return (
     <div>
-      <FadeIn><h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("test.title")}</h1></FadeIn>
+      <FadeIn><h2 className="mb-6 text-xl font-semibold tracking-tight">{t("test.title")}</h2></FadeIn>
       <div className="card-glass p-5" aria-busy={busy}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">

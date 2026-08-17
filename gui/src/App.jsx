@@ -4,17 +4,21 @@ import { Toaster, toast } from "sonner";
 import i18n from "./i18n";
 import { getSettings, onSettingsChange } from "@/lib/settings";
 import { useAppState } from "@/hooks/useAppState";
-import { beginCliCheck, completeCliCheck, setView } from "@/lib/store";
+import { beginCliCheck, completeCliCheck, getState, setView } from "@/lib/store";
 import { resolveCli, isTauriMissing } from "@/lib/api";
 import { installWindowCloseLifecycle } from "@/lib/windowLifecycle";
 import { AmbientBg } from "@/components/AmbientBg";
 import { Sidebar } from "@/components/Sidebar";
 import { Dashboard } from "@/views/Dashboard";
 import { Deploy } from "@/views/Deploy";
-import { RunView } from "@/views/RunView";
-import { TestView } from "@/views/TestView";
+import { AdvancedTools } from "@/views/AdvancedTools";
 import { Manage } from "@/views/Manage";
 import { SettingsView } from "@/views/SettingsView";
+import {
+  resolveInitialNavigation,
+  resolveView,
+  LEGACY_ADVANCED_VIEWS,
+} from "@/lib/navigation";
 
 function useTheme() {
   const [theme, setTheme] = React.useState(() => getSettings().theme);
@@ -41,10 +45,14 @@ function useTheme() {
 export default function App() {
   const { view } = useAppState();
   useTheme();
+  const initialNavigation = React.useMemo(
+    () => resolveInitialNavigation(new URLSearchParams(window.location.search)),
+    [],
+  );
+
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const next = params.get("view");
-    if (next) setView(next);
+    if (initialNavigation.view) setView(initialNavigation.view);
     const theme = params.get("theme");
     if (theme) document.documentElement.classList.toggle("dark", theme === "dark");
     if (params.get("fixture") === "1") {
@@ -56,7 +64,7 @@ export default function App() {
         checked: true,
       });
     }
-  }, []);
+  }, [initialNavigation]);
 
   React.useEffect(() => {
     if (new URLSearchParams(window.location.search).get("fixture") === "1") return;
@@ -97,14 +105,28 @@ export default function App() {
     return lifecycle.dispose;
   }, []);
 
+  const [showAdvanced, setShowAdvanced] = React.useState(() => getSettings().showAdvancedTools);
+
+  React.useEffect(
+    () => onSettingsChange((settings) => {
+      setShowAdvanced(settings.showAdvancedTools);
+      // 关闭高级工具时，如果正位于高级工具页或旧的 run/test 深链，安全返回状态总览。
+      if (!settings.showAdvancedTools
+        && ["advanced", ...LEGACY_ADVANCED_VIEWS].includes(getState().view)) {
+        setView("dashboard");
+      }
+    }),
+    [],
+  );
+
   const views = {
     dashboard: <Dashboard />,
     deploy: <Deploy />,
-    run: <RunView />,
-    test: <TestView />,
+    advanced: <AdvancedTools initialTab={initialNavigation.advancedTab} />,
     manage: <Manage />,
     settings: <SettingsView />,
   };
+  const resolvedView = resolveView(view, showAdvanced);
 
   return (
     <div className="flex h-full">
@@ -112,7 +134,7 @@ export default function App() {
       <Sidebar />
       <main className="relative flex-1 overflow-y-auto" key={view}>
         <div className="mx-auto max-w-[880px] px-6 py-8 md:px-10">
-          {views[view] ?? views.dashboard}
+          {views[resolvedView] ?? views.dashboard}
         </div>
       </main>
       <Toaster

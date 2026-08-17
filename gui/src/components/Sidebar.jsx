@@ -3,18 +3,19 @@ import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Rocket,
-  Play,
-  FlaskConical,
   Wrench,
   Settings,
   KeyRound,
   ChevronsLeft,
   ChevronsRight,
+  Hammer,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useAppState } from "@/hooks/useAppState";
 import { setView } from "@/lib/store";
+import { getSettings, onSettingsChange } from "@/lib/settings";
+import { buildNav, ADVANCED_NAV_KEY } from "@/lib/navigation";
 import {
   Tooltip,
   TooltipContent,
@@ -22,19 +23,26 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const NAV = [
-  { key: "dashboard", icon: LayoutDashboard },
-  { key: "deploy", icon: Rocket },
-  { key: "run", icon: Play },
-  { key: "test", icon: FlaskConical },
-  { key: "manage", icon: Wrench },
-  { key: "settings", icon: Settings },
-];
+const NAV_ICONS = {
+  dashboard: LayoutDashboard,
+  deploy: Rocket,
+  manage: Wrench,
+  settings: Settings,
+  [ADVANCED_NAV_KEY]: Hammer,
+};
 
 export function Sidebar() {
   const { t } = useTranslation();
   const { view, operationInProgress } = useAppState();
   const [pinned, setPinned] = React.useState(false);
+  const [showAdvanced, setShowAdvanced] = React.useState(() => getSettings().showAdvancedTools);
+
+  React.useEffect(
+    () => onSettingsChange((settings) => setShowAdvanced(settings.showAdvancedTools)),
+    [],
+  );
+
+  const nav = buildNav(showAdvanced).map((key) => ({ key, icon: NAV_ICONS[key] }));
 
   return (
     <motion.nav
@@ -62,7 +70,7 @@ export function Sidebar() {
 
       <TooltipProvider delayDuration={200}>
         <div className="flex flex-1 flex-col gap-1 p-2">
-          {NAV.map(({ key, icon: Icon }) => {
+          {nav.map(({ key, icon: Icon }) => {
             const active = view === key;
             const item = (
               <button
