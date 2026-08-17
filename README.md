@@ -41,29 +41,29 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 
 ### 安装方式
 
-1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.3.0`）的已校验单文件，或 checkout 同一 tag。该版本没有 `--json` / `--grok-dir`。不要从浮动 `main`（`0.4.0-dev`）当稳定版安装。
-2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌开发版 CLI sidecar。无签名、无自动更新、无 Linux GUI。
+1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.4.0`）的已校验单文件，或 checkout 同一 tag。不要从浮动 `main` 安装。
+2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.2](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌稳定版 `0.4.0` CLI sidecar。无开发者签名、无自动更新、无 Linux GUI。
 
 ### 快速开始
 
 **Release 单文件（推荐）：**
 
 ```bash
-mkdir grok-keysmith-v0.3.0 && cd grok-keysmith-v0.3.0
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/grok-keysmith-v0.3.0.py
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/SHA256SUMS
-grep ' grok-keysmith-v0.3.0.py$' SHA256SUMS | shasum -a 256 -c -
-python3 grok-keysmith-v0.3.0.py --version
-python3 grok-keysmith-v0.3.0.py --status
-python3 grok-keysmith-v0.3.0.py --dry-run
+mkdir grok-keysmith-v0.4.0 && cd grok-keysmith-v0.4.0
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.4.0/grok-keysmith-v0.4.0.py
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.4.0/SHA256SUMS
+grep ' grok-keysmith-v0.4.0.py$' SHA256SUMS | shasum -a 256 -c -
+python3 grok-keysmith-v0.4.0.py --version
+python3 grok-keysmith-v0.4.0.py --status
+python3 grok-keysmith-v0.4.0.py --dry-run
 # 确认 ~/.grok 目标、提示词和 isolation 计划后：
-python3 grok-keysmith-v0.3.0.py --yes
+python3 grok-keysmith-v0.4.0.py --yes
 ```
 
 **固定 tag 源码：**
 
 ```bash
-git clone --branch v0.3.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
+git clone --branch v0.4.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
 cd grok-keysmith
 python3 grok-keysmith.py --version
 python3 grok-keysmith.py --status
@@ -88,10 +88,10 @@ python3 grok-keysmith.py --yes
 以下以 Release 单文件为例；tag checkout 请把文件名换成 `grok-keysmith.py`。
 
 ```bash
-python3 grok-keysmith-v0.3.0.py --restore-hooks        # 预览 hooks 恢复计划
-python3 grok-keysmith-v0.3.0.py --restore-hooks --yes  # 实际恢复 hooks
-python3 grok-keysmith-v0.3.0.py --uninstall            # 预览完整卸载
-python3 grok-keysmith-v0.3.0.py --uninstall --yes      # 实际执行完整卸载
+python3 grok-keysmith-v0.4.0.py --restore-hooks        # 预览 hooks 恢复计划
+python3 grok-keysmith-v0.4.0.py --restore-hooks --yes  # 实际恢复 hooks
+python3 grok-keysmith-v0.4.0.py --uninstall            # 预览完整卸载
+python3 grok-keysmith-v0.4.0.py --uninstall --yes      # 实际执行完整卸载
 ```
 
 中断事务先 `--status`，再 `--recover` 预览，确认后加 `--yes`。v0.1.x 写在 `AGENTS.md` 的旧部署仍可卸载，但会先做内容所有权校验。
@@ -100,12 +100,12 @@ python3 grok-keysmith-v0.3.0.py --uninstall --yes      # 实际执行完整卸�
 
 - CLI CI 覆盖 macOS / Linux / Windows；Python 3.8+。Windows 上 `override` / `ab` 需要原生 `grok.exe`。
 - Desktop：仅 macOS Apple Silicon 与 Windows x64，未签名。
-- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`main` 上的 `--json` / `run` / `breaktest` 属于开发版。
+- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.4.0` 提供 `--json`、`--grok-dir`、`run` 与 `breaktest`。
 
 ### 进阶文档
 
 - Compat / hooks / 恢复：[`docs/reference.md`](docs/reference.md)
-- Desktop：[`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md)
+- Desktop：[`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.2.md`](docs/releases/desktop-v0.1.0-beta.2.md)
 - 智能体安装：[`docs/agent-install.md`](docs/agent-install.md)
 
 ### 贡献、安全与系列

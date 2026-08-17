@@ -91,10 +91,11 @@ jobs:
           python -m pip install "pytest==8.4.2"
           (cd .. && python -m pytest -p no:cacheprovider -q tests)
           mkdir -p src-tauri/binaries
+          cli_version="$(cat ../VERSION)"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            printf '%s\n' '@echo grok-keysmith 0.4.0-dev' > src-tauri/binaries/grok-keysmith-cli-x86_64-pc-windows-msvc.exe
+            printf '@echo grok-keysmith %s\n' "$cli_version" > src-tauri/binaries/grok-keysmith-cli-x86_64-pc-windows-msvc.exe
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            printf '%s\n' '#!/bin/sh' 'echo grok-keysmith 0.4.0-dev' > src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
+            printf '%s\n' '#!/bin/sh' "echo grok-keysmith $cli_version" > src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
             chmod +x src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
           fi
 

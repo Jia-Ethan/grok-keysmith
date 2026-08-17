@@ -44,7 +44,7 @@ def test_version_file_matches_python_constant():
     constants = _constants()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert version == constants["VERSION"]
-    assert version.endswith("-dev") or version == "0.4.0-dev"
+    assert version == "0.4.0"
     for relative_path in (
         "README.md",
         "README.en.md",
