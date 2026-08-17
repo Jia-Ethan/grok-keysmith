@@ -41,10 +41,26 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 
 ### 安装方式
 
-1. **稳妥：稳定 CLI。** 打开 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.3.0`），下载 `grok-keysmith-v*.py`（或 checkout 该 tag）与 `SHA256SUMS`。该版本没有 `--json` / `--grok-dir`。不要从浮动 `main`（`0.4.0-dev`）当稳定版安装。
+1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.3.0`）的已校验单文件，或 checkout 同一 tag。该版本没有 `--json` / `--grok-dir`。不要从浮动 `main`（`0.4.0-dev`）当稳定版安装。
 2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌开发版 CLI sidecar。无签名、无自动更新、无 Linux GUI。
 
 ### 快速开始
+
+**Release 单文件（推荐）：**
+
+```bash
+mkdir grok-keysmith-v0.3.0 && cd grok-keysmith-v0.3.0
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/grok-keysmith-v0.3.0.py
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/SHA256SUMS
+grep ' grok-keysmith-v0.3.0.py$' SHA256SUMS | shasum -a 256 -c -
+python3 grok-keysmith-v0.3.0.py --version
+python3 grok-keysmith-v0.3.0.py --status
+python3 grok-keysmith-v0.3.0.py --dry-run
+# 确认 ~/.grok 目标、提示词和 isolation 计划后：
+python3 grok-keysmith-v0.3.0.py --yes
+```
+
+**固定 tag 源码：**
 
 ```bash
 git clone --branch v0.3.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
@@ -69,10 +85,13 @@ python3 grok-keysmith.py --yes
 
 ### 如何撤销
 
+以下以 Release 单文件为例；tag checkout 请把文件名换成 `grok-keysmith.py`。
+
 ```bash
-python3 grok-keysmith.py --restore-hooks
-python3 grok-keysmith.py --uninstall
-python3 grok-keysmith.py --uninstall --yes
+python3 grok-keysmith-v0.3.0.py --restore-hooks        # 预览 hooks 恢复计划
+python3 grok-keysmith-v0.3.0.py --restore-hooks --yes  # 实际恢复 hooks
+python3 grok-keysmith-v0.3.0.py --uninstall            # 预览完整卸载
+python3 grok-keysmith-v0.3.0.py --uninstall --yes      # 实际执行完整卸载
 ```
 
 中断事务先 `--status`，再 `--recover` 预览，确认后加 `--yes`。v0.1.x 写在 `AGENTS.md` 的旧部署仍可卸载，但会先做内容所有权校验。

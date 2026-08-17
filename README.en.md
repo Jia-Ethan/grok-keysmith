@@ -41,10 +41,26 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 
 ### Install options
 
-1. **Conservative: stable CLI.** Open the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.3.0`) and download `grok-keysmith-v*.py` (or check out that tag) plus `SHA256SUMS`. That build has neither `--json` nor `--grok-dir`. Do not treat floating `main` (`0.4.0-dev`) as the stable install.
+1. **Conservative: stable CLI.** Use the verified single file from the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.3.0`), or check out the same tag. That build has neither `--json` nor `--grok-dir`. Do not treat floating `main` (`0.4.0-dev`) as the stable install.
 2. **Easier: unsigned Desktop Beta.** See [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1): macOS Apple Silicon DMG and Windows x64 NSIS, embedding a development CLI sidecar. No signing, no auto-update, no Linux GUI.
 
 ### Quick start
+
+**Release single file (recommended):**
+
+```bash
+mkdir grok-keysmith-v0.3.0 && cd grok-keysmith-v0.3.0
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/grok-keysmith-v0.3.0.py
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/SHA256SUMS
+grep ' grok-keysmith-v0.3.0.py$' SHA256SUMS | shasum -a 256 -c -
+python3 grok-keysmith-v0.3.0.py --version
+python3 grok-keysmith-v0.3.0.py --status
+python3 grok-keysmith-v0.3.0.py --dry-run
+# After reviewing the ~/.grok target, prompt, and isolation plan:
+python3 grok-keysmith-v0.3.0.py --yes
+```
+
+**Pinned source tag:**
 
 ```bash
 git clone --branch v0.3.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
@@ -69,10 +85,13 @@ python3 grok-keysmith.py --yes
 
 ### How to undo
 
+The commands below use the Release single file. For a tag checkout, replace the filename with `grok-keysmith.py`.
+
 ```bash
-python3 grok-keysmith.py --restore-hooks
-python3 grok-keysmith.py --uninstall
-python3 grok-keysmith.py --uninstall --yes
+python3 grok-keysmith-v0.3.0.py --restore-hooks        # Preview the hooks restore plan
+python3 grok-keysmith-v0.3.0.py --restore-hooks --yes  # Restore hooks
+python3 grok-keysmith-v0.3.0.py --uninstall            # Preview the full uninstall
+python3 grok-keysmith-v0.3.0.py --uninstall --yes      # Run the full uninstall
 ```
 
 For an interrupted transaction, run `--status`, preview with `--recover`, then add `--yes`. v0.1.x deployments that wrote `AGENTS.md` remain uninstallable after a content-ownership check.
