@@ -10,7 +10,7 @@ describe("诊断负载", () => {
   it("手动 CLI/Grok 路径脱敏为 [set]，其余诊断字段完整保留", () => {
     const payload = buildDiagnosticsPayload({
       buildInfo: { desktopVersion: "0.1.0", channel: "development", sourceCommit: null },
-      cliInfo: { path: "/usr/local/bin/grok-keysmith", version: "0.4.0-dev", runtime: "python" },
+      cliInfo: { path: "/usr/local/bin/grok-keysmith", version: "0.4.0", runtime: "python" },
       settings: {
         cliPath: "/home/someone/tools/grok-keysmith.py",
         grokBin: "/home/someone/bin/grok",

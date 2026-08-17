@@ -6,7 +6,23 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Development version `0.4.0-dev`. Not a GitHub Release.
+No unreleased user-visible changes are recorded yet.
+
+## [Desktop 0.1.0-beta.2] - 2026-08-17
+
+Second desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.4.0`.
+
+### Changed
+
+- Top-level navigation now focuses on Status, Deploy, Manage, and Settings; Run and Test live under an opt-in Advanced tools entry, with legacy deep links preserved.
+- Status, deploy, manage, and diagnostics surfaces now use user-facing summaries with raw plans, identifiers, and diagnostics available only through collapsed technical details.
+
+### Fixed
+
+- Write actions are gated by managed, hook-ownership, drift/conflict, and interrupted-transaction state while preserving fresh preview binding, exclusive operation leases, and post-write verification.
+- Diagnostic export recursively redacts local absolute paths, and the GUI audit covers responsive, theme, failure, confirmation, recovery, diagnostics, and legacy-navigation scenarios.
+
+## [0.4.0] - 2026-08-17
 
 ### Added
 
@@ -26,9 +42,9 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - `--restore-hooks` restores only hooks owned by the current manifest.
 - Fresh `config.toml` always receives a marked compat block.
 
-### Docs
+### Documentation
 
-- Rewrote the newcomer `README.md` / `README.en.md` so stable CLI `v0.3.0` is the conservative path, Desktop stays an unsigned Beta, and sibling projects no longer describe this tool as an `AGENTS.md` installer.
+- Rewrote the newcomer `README.md` / `README.en.md` around the stable CLI Release and unsigned Desktop Beta, and corrected sibling-project descriptions.
 
 ### Fixed
 
@@ -223,8 +239,10 @@ version and does not include the earlier private-only predecessor.
 - Journal and manifest evidence protects against accidental drift and ordinary
   races, not coordinated same-user tampering.
 
-[Unreleased]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...HEAD
+[Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1
+[0.4.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/v0.1.1

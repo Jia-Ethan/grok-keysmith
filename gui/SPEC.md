@@ -1,6 +1,6 @@
 # grok-keysmith GUI
 
-Desktop 0.1.0-beta.1 wraps the Python CLI. The UI never writes `~/.grok` itself.
+Desktop 0.1.0-beta.2 wraps the Python CLI. The UI never writes `~/.grok` itself.
 
 Stack: Tauri 2 + React 19 + Tailwind 4 + Radix + Motion + PyInstaller sidecar `grok-keysmith-cli`.
 

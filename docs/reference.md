@@ -12,9 +12,8 @@
 
 ### 稳定 CLI 与开发版
 
-- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.3.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`。它没有 `--json`，也没有 `--grok-dir`。
-- 当前 `main` 与 Desktop sidecar 是开发版 `0.4.0-dev`，额外提供 `--json`、绝对路径 `--grok-dir`、`run` 与 `breaktest`。不要把这些开发版参数写进 `v0.3.0` 安装步骤。
-- 不要从浮动 `main` 安装稳定版。Desktop 是未签名 Beta，内嵌的是开发版 CLI。
+- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.4.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run` 与 `breaktest`。
+- 不要从浮动 `main` 安装稳定版。Desktop `0.1.0-beta.2` 是未签名预发布版本，内嵌稳定版 CLI `0.4.0`。
 
 ### 状态输出
 
@@ -131,7 +130,7 @@ for document in (
     "README.en.md",
     "CHANGELOG.md",
     "SECURITY.md",
-    "docs/releases/desktop-v0.1.0-beta.1.md",
+    "docs/releases/desktop-v0.1.0-beta.2.md",
 ):
     assert version in Path(document).read_text(encoding="utf-8")
 assert bundled == prompt
@@ -158,7 +157,7 @@ grok-keysmith/
 ├── grok-unrestricted.sh/.ps1     # Runner 包装
 ├── examples/grok-unrestricted.md
 ├── tests/                        # 隔离 HOME / fake Grok 测试
-├── gui/                          # Desktop 0.1.0-beta.1
+├── gui/                          # Desktop 0.1.0-beta.2
 ├── VERSION
 ├── docs/
 ├── README.md / README.en.md
@@ -183,9 +182,8 @@ grok-keysmith/
 
 ### Stable CLI vs development
 
-- The conservative install pins the latest stable GitHub Release (currently `v0.3.0`). That build writes `~/.grok/rules/99-keysmith.md` and **does not** edit `~/.grok/AGENTS.md`. It has neither `--json` nor `--grok-dir`.
-- Current `main` and the Desktop sidecar are development `0.4.0-dev`, which add `--json`, absolute `--grok-dir`, `run`, and `breaktest`. Do not use those flags in a `v0.3.0` install.
-- Do not install a stable release from floating `main`. Desktop is an unsigned Beta that embeds the development CLI.
+- The conservative install pins the latest stable GitHub Release (currently `v0.4.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, and `breaktest`.
+- Do not install a stable release from floating `main`. Desktop `0.1.0-beta.2` is an unsigned pre-release that embeds stable CLI `0.4.0`.
 
 ### Status output
 
