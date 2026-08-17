@@ -10,6 +10,12 @@
 
 ## 简体中文
 
+### 稳定 CLI 与开发版
+
+- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.3.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`。它没有 `--json`，也没有 `--grok-dir`。
+- 当前 `main` 与 Desktop sidecar 是开发版 `0.4.0-dev`，额外提供 `--json`、绝对路径 `--grok-dir`、`run` 与 `breaktest`。不要把这些开发版参数写进 `v0.3.0` 安装步骤。
+- 不要从浮动 `main` 安装稳定版。Desktop 是未签名 Beta，内嵌的是开发版 CLI。
+
 ### 状态输出
 
 ```bash
@@ -174,6 +180,12 @@ grok-keysmith/
 ---
 
 ## English
+
+### Stable CLI vs development
+
+- The conservative install pins the latest stable GitHub Release (currently `v0.3.0`). That build writes `~/.grok/rules/99-keysmith.md` and **does not** edit `~/.grok/AGENTS.md`. It has neither `--json` nor `--grok-dir`.
+- Current `main` and the Desktop sidecar are development `0.4.0-dev`, which add `--json`, absolute `--grok-dir`, `run`, and `breaktest`. Do not use those flags in a `v0.3.0` install.
+- Do not install a stable release from floating `main`. Desktop is an unsigned Beta that embeds the development CLI.
 
 ### Status output
 

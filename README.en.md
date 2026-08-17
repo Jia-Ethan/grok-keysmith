@@ -1,126 +1,118 @@
 <!-- markdownlint-disable MD013 MD033 MD041 -->
 
+<p align="center">
+  <img src="docs/assets/readme/grok-keysmith-preview.png" alt="Illustrative grok-keysmith dry-run terminal preview; actual paths and output vary" width="100%">
+</p>
+<p align="center"><em>Illustrative preview / 示意预览；actual paths and output follow the local dry-run.</em></p>
+
 <h1 align="center">grok-keysmith</h1>
 
-<p align="center">
-  Versioned Grok Build instruction deployment with preview, compat isolation, hook isolation, and layered uninstall.
-</p>
+<p align="center">Preview-first Grok Build home-rules deployment you can verify and undo.</p>
 
 <p align="center">
   <a href="README.md">简体中文</a> ·
   <a href="#english">English</a> ·
-  <a href="#desktop-client-beta">Desktop beta</a> ·
   <a href="docs/reference.md">Reference</a> ·
   <a href="docs/agent-install.md">Agent install</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="LICENSE">License</a>
 </p>
 
+<p align="center">
+  <img alt="Python 3.8+" src="https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white">
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-6DB33F">
+</p>
+
 ## English
 
-### What this is
+The Keysmith series **deploys, verifies, and revokes** custom instructions for local AI tools. `grok-keysmith` writes a Markdown file to `~/.grok/rules/99-keysmith.md` so later new Grok sessions load it. It **does not** edit `~/.grok/AGENTS.md`.
 
-`grok-keysmith` is a zero-dependency, single-file Python script that deploys an instruction Markdown file as `~/.grok/rules/99-keysmith.md`, auto-loaded by every new Grok session. It previews by default and only writes on explicit confirmation; every deployment can be undone. `v0.1.1` is the first public release; `v0.3.0` reworks the deployment surface and the bundled instruction for the Grok 4.6 alignment layer; the earlier private-only `0.1.0` is not part of this repository's history and must not be used.
+> [!WARNING]
+> These are **global home rules** with no project isolation: the tool writes `~/.grok/rules/99-keysmith.md`, injects a compat isolation block into `config.toml`, and renames every `~/.grok/hooks/*.json` to `.disabled`. Commands preview unless you pass `--yes`. Read [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) and [`SECURITY.md`](SECURITY.md) first.
 
-Current `main` contains CLI development version `0.4.0-dev`, which is not a published CLI Release. Formal CLI installation remains pinned to `v0.3.0` below. Desktop `0.1.0-beta.1` is published separately as a pre-release.
+### Which Keysmith to use
 
-**This changes Grok's global behavior, not a per-project setting**: deployment writes `~/.grok/rules/99-keysmith.md` (home rules, always scanned by every session) and injects a compat isolation block into `~/.grok/config.toml` — disabling every Claude/Cursor compatibility surface and separately disabling Codex session import. **`~/.grok/AGENTS.md` is no longer touched by this tool**: a persona card, agent profile, or any global instruction can keep living there, fully decoupled from the keysmith deployment. The bundled instruction is a delivery contract covering reverse engineering and penetration testing workflows (local-fixture/placeholder framing) and measurably reduces refusal framing for sensitive requests. **This is a broad behavior change, not a safety boundary** — read [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) before using it, or supply your own file with `--file`.
+| Project | Target | Surface | Conservative install | Desktop |
+| --- | --- | --- | --- | --- |
+| [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) | Codex | Global `~/.codex` instructions | Stable CLI Release | Unsigned Beta |
+| [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) | Claude Code | Project / user `CLAUDE.md` import | Source CLI | Unsigned Beta |
+| **[grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith)** | Grok Build | Global `~/.grok/rules` (does not edit `AGENTS.md`) | Stable CLI Release | Unsigned Beta |
+| [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) | ZCode App | User-dir system-role + wrapper | Source only | None |
 
-The covered boundary is model-version-dependent and shifts with model updates; Grok 4.6 alignment lives at the model-weight level, so the contract raises compliance on covered domains but does not change weight-level hard refusals outside those scopes. This project does not publish a targeted testing methodology or specific bypass cases in its public documentation.
+### Install options
 
-### Desktop client (beta)
+1. **Conservative: stable CLI.** Use the verified single file from the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.3.0`), or check out the same tag. That build has neither `--json` nor `--grok-dir`. Do not treat floating `main` (`0.4.0-dev`) as the stable install.
+2. **Easier: unsigned Desktop Beta.** See [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1): macOS Apple Silicon DMG and Windows x64 NSIS, embedding a development CLI sidecar. No signing, no auto-update, no Linux GUI.
 
-[`desktop-v0.1.0-beta.1`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1) is the first public desktop pre-release. It combines status, deployment, run, test, management, and settings workflows in one GUI.
+### Quick start
 
-- macOS Apple Silicon: [`grok-keysmith_0.1.0-beta.1_aarch64.dmg`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/grok-keysmith_0.1.0-beta.1_aarch64.dmg)
-- Windows x64: [`grok-keysmith_0.1.0-beta.1_x64-setup.exe`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/grok-keysmith_0.1.0-beta.1_x64-setup.exe)
+**Release single file (recommended):**
 
-Both packages bundle the `grok-keysmith-cli` sidecar and do not require a separate Python installation. Verify them with the Release [`SHA256SUMS`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/SHA256SUMS); see [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md) for the complete build boundary.
+```bash
+mkdir grok-keysmith-v0.3.0 && cd grok-keysmith-v0.3.0
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/grok-keysmith-v0.3.0.py
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.3.0/SHA256SUMS
+grep ' grok-keysmith-v0.3.0.py$' SHA256SUMS | shasum -a 256 -c -
+python3 grok-keysmith-v0.3.0.py --version
+python3 grok-keysmith-v0.3.0.py --status
+python3 grok-keysmith-v0.3.0.py --dry-run
+# After reviewing the ~/.grok target, prompt, and isolation plan:
+python3 grok-keysmith-v0.3.0.py --yes
+```
 
-### Quick start (macOS / Linux)
+**Pinned source tag:**
 
 ```bash
 git clone --branch v0.3.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
 cd grok-keysmith
-test "$(git describe --tags --exact-match)" = "v0.3.0"
-test "$(shasum -a 256 examples/grok-unrestricted.md | awk '{print $1}')" = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
-
 python3 grok-keysmith.py --version
-python3 grok-keysmith.py --status --json
-python3 grok-keysmith.py --dry-run --json
-
-# After confirming the target directory, prompt source, and compat/hooks plan:
-python3 grok-keysmith.py --yes --json
+python3 grok-keysmith.py --status
+python3 grok-keysmith.py --dry-run
+# After reviewing the ~/.grok target, prompt, and isolation plan:
+python3 grok-keysmith.py --yes
 ```
 
-Never install a formal release from a floating `main`. Verify with a new Grok session outside the repository directory:
+`~/.grok` must already exist (run Grok at least once). After deploy, start a new session outside a project directory.
 
-```bash
-cd ~
-grok inspect --json | python3 -c "import sys,json; d=json.load(sys.stdin); [print('instruction',p['path'],'scope='+p['scope'],'status='+p.get('compatibilityStatus','enabled')) for p in d['projectInstructions']]; [print('compat',c['vendor'],c['surface'],'ON' if c['enabled'] else 'OFF','source='+c['source']) for c in d['externalCompat']['cells']]"
-```
-
-Should show `~/.grok/rules/99-keysmith.md` as enabled; every Claude/Cursor compatibility surface as `OFF`; and Codex `sessions` as `OFF`. `~/.grok/AGENTS.md` is not affected.
-
-### Files it changes
+### What it changes
 
 | Path | What happens |
 | --- | --- |
 | `~/.grok/rules/99-keysmith.md` | Create, or back up and replace |
-| `~/.grok/config.toml` | Marked `[compat.*]` isolation block injected (backed up first) |
-| `~/.grok/hooks/*.json` | Isolated to `.json.disabled` (backed up first) |
-| `~/.grok/.grok-keysmith-manifest.json` | Records what this deployment changed, for later uninstall |
+| `~/.grok/config.toml` | Inject a marked `[compat.*]` isolation block |
+| `~/.grok/hooks/*.json` | Whole-directory rename to `.json.disabled` |
+| `~/.grok/.grok-keysmith-manifest.json` | Records this layer for uninstall |
 
-`~/.grok/AGENTS.md` is not touched: persona cards and agent profiles stay fully decoupled from the keysmith deployment. During uninstall, a file whose content no longer matches the deployment record (e.g. AGENTS.md later replaced by a persona card) is preserved.
+### How to undo
 
-Full field list and edge cases: [`docs/reference.md`](docs/reference.md). Desktop notes: [`gui/README.md`](gui/README.md) and [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md). `--json` emits `grok-keysmith.envelope.v1`. `--grok-dir` must be absolute. `run` / `breaktest` never log in or read tokens.
-
-### Undo
+The commands below use the Release single file. For a tag checkout, replace the filename with `grok-keysmith.py`.
 
 ```bash
-# Only restore hooks:
-python3 grok-keysmith.py --restore-hooks --yes
-
-# Fully undo this deployment:
-python3 grok-keysmith.py --uninstall          # preview first
-python3 grok-keysmith.py --uninstall --yes    # confirm
+python3 grok-keysmith-v0.3.0.py --restore-hooks        # Preview the hooks restore plan
+python3 grok-keysmith-v0.3.0.py --restore-hooks --yes  # Restore hooks
+python3 grok-keysmith-v0.3.0.py --uninstall            # Preview the full uninstall
+python3 grok-keysmith-v0.3.0.py --uninstall --yes      # Run the full uninstall
 ```
 
-### If something goes wrong
+For an interrupted transaction, run `--status`, preview with `--recover`, then add `--yes`. v0.1.x deployments that wrote `AGENTS.md` remain uninstallable after a content-ownership check.
 
-| Symptom | What to do |
-| --- | --- |
-| Deployment interrupted by SIGKILL | `--status` reports a non-terminal journal and blocks further deployment; preview `--recover`, then confirm with `--recover --yes` |
-| You want to clean up old backups | The tool never auto-deletes `*.keysmith-backup-*` or `.uninstalled-*`; clean up manually after verifying |
+### Platforms and Beta limits
 
-### Compatibility and limits
+- CLI CI covers macOS / Linux / Windows; Python 3.8+. Windows `override` / `ab` need a native `grok.exe`.
+- Desktop: macOS Apple Silicon and Windows x64 only; unsigned.
+- Versions and assets live on [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases). `--json` / `run` / `breaktest` on `main` are development-only.
 
-- Python 3.8+; bundled instruction rewritten for Grok Build model `grok-4.6`.
-- The CLI CI matrix covers macOS, Linux, and Windows. Desktop `0.1.0-beta.1` provides a macOS Apple Silicon DMG and Windows x64 NSIS installer. On Windows, `override` / `ab` mode requires native `grok.exe` because `.cmd` / `.bat` shims cannot carry the full contract.
-- `~/.grok/rules/` is global home rules with no per-project isolation; hooks are isolated as a whole-directory rename.
-- v0.1.x deployments (written to `~/.grok/AGENTS.md`) remain uninstallable by v0.3.0; uninstall verifies content ownership first.
-- Full limits list, compat isolation details, and maintainer verification: [`docs/reference.md`](docs/reference.md).
+### Advanced docs
 
-### Community
+- Compat / hooks / recovery: [`docs/reference.md`](docs/reference.md)
+- Desktop: [`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md)
+- Agent install: [`docs/agent-install.md`](docs/agent-install.md)
 
-This project accepts monitoring and feedback from the LINUX DO community: [LINUX DO](https://linux.do)
+### Contributing, security, and the series
 
-Same series:
+Report vulnerabilities through [`SECURITY.md`](SECURITY.md). Community: [LINUX DO](https://linux.do).
 
-- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) - Versioned instruction deployment for local Codex CLI configuration with preview, hook isolation, interruption recovery, and layered uninstall.
-- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) - Managed Claude Code `CLAUDE.md` import-block installer for local Markdown instruction files.
-- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) - Managed true system-role entrypoint for ZCode App.
-- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) - Home-rules instruction deployment for Grok Build (`~/.grok/rules/99-keysmith.md`), decoupled from AGENTS.md persona cards, with compat/hook isolation, interruption recovery, and layered uninstall.
-
-### Copy to an agent
-
-Use the following with Codex, Claude Code, Cursor Agent, or another coding agent. The complete CLI prompt is in [`docs/agent-install.md`](docs/agent-install.md).
-
-```text
-Install grok-keysmith. Read README and docs/agent-install.md first, then confirm whether I need stable CLI v0.3.0 or the desktop-v0.1.0-beta.1 Desktop Beta. Download only from the matching GitHub Release and verify SHA256SUMS. Before any write, show the exact target directory, paths, backups, behavior impact, and rollback, then wait for my confirmation. Do not install a stable version from floating main, delete backups/manifests/journals, or modify Grok binaries, running processes, network settings, or credentials.
-```
-
----
-
-简体中文版: [`README.md`](README.md)。Agent install prompt: [`docs/agent-install.md`](docs/agent-install.md).
+- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) — global Codex instructions
+- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) — uninstallable Claude Code import blocks
+- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) — Grok Build home rules (`~/.grok/rules/99-keysmith.md`; does not edit `AGENTS.md`)
+- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) — ZCode App system-role entrypoint (source only, no Desktop)
