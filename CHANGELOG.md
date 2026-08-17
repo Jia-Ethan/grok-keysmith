@@ -26,6 +26,10 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - `--restore-hooks` restores only hooks owned by the current manifest.
 - Fresh `config.toml` always receives a marked compat block.
 
+### Docs
+
+- Rewrote the newcomer `README.md` / `README.en.md` so stable CLI `v0.3.0` is the conservative path, Desktop stays an unsigned Beta, and sibling projects no longer describe this tool as an `AGENTS.md` installer.
+
 ### Fixed
 
 - `GROK_KEYSMIth_CONTRACT` is only a deprecated alias of `GROK_KEYSMITH_CONTRACT`.
