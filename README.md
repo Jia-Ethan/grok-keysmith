@@ -31,7 +31,7 @@
 
 `grok-keysmith` 是零依赖的单文件 Python 脚本，把一份指令 Markdown 部署为 `~/.grok/rules/99-keysmith.md`，让每个新 Grok 会话自动加载。默认预览、显式确认才写入，可随时撤销。`v0.1.1` 是首个公开版本；`v0.3.0` 针对 Grok 4.6 的对齐层重构部署面与内置指令；更早的 private-only `0.1.0` 不在本仓库历史中，不要使用。
 
-当前 `main` 对应 CLI 开发版本 `0.4.0-dev`，尚未作为 CLI Release 发布；CLI 正式安装仍使用下方固定的 `v0.3.0`。Desktop `0.1.0-beta.1` 已作为独立预发布版本发布。
+当前 `main` 对应 CLI 开发版本 `0.4.0-dev`，尚未作为 CLI Release 发布；CLI 正式安装仍使用下方固定的 `v0.3.0`。已发布的 Desktop 仍是独立预发布版本 `0.1.0-beta.1`；`main` 已包含下一版 Desktop 的信息架构与操作流程改进，但尚未版本化、构建为正式候选或发布。
 
 **这会改变 Grok 的全局行为，不是项目级设置**：部署写入 `~/.grok/rules/99-keysmith.md`（home rules，所有会话总是扫描），并在 `~/.grok/config.toml` 注入 compat 隔离块——关闭 Claude/Cursor 全部兼容层，单独关闭 Codex session import。**`~/.grok/AGENTS.md` 不再被本工具触碰**：人物卡、agent 档案或任何全局指令都可以继续放在那里，与 keysmith 的部署互不影响。内置示例指令以交付契约形式覆盖逆向工程与渗透测试工作流（本地样本/占位符框架），也会明显降低模型对敏感请求的拒绝率。**这不是安全边界，是一次影响很广的行为切换**——用前请打开 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) 看一眼，或用 `--file` 换成你自己的指令。
 
@@ -45,6 +45,8 @@
 - Windows x64：[`grok-keysmith_0.1.0-beta.1_x64-setup.exe`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/grok-keysmith_0.1.0-beta.1_x64-setup.exe)
 
 两个安装包都内置 `grok-keysmith-cli` sidecar，无需另行安装 Python。校验值见 Release 中的 [`SHA256SUMS`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/SHA256SUMS)，完整构建边界见 [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md)。
+
+当前 `main` 的 Desktop 源码已将首层导航收敛为状态、部署、管理和设置，把运行/测试移入默认关闭的高级工具；状态、预览、错误与诊断采用用户摘要加按需技术详情。上述变化不属于已发布的 beta.1 安装包，正式发布需要新的版本、tag 和从最终版本提交重新构建的产物。
 
 ### 快速开始（macOS / Linux）
 

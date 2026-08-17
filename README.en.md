@@ -23,7 +23,7 @@
 
 `grok-keysmith` is a zero-dependency, single-file Python script that deploys an instruction Markdown file as `~/.grok/rules/99-keysmith.md`, auto-loaded by every new Grok session. It previews by default and only writes on explicit confirmation; every deployment can be undone. `v0.1.1` is the first public release; `v0.3.0` reworks the deployment surface and the bundled instruction for the Grok 4.6 alignment layer; the earlier private-only `0.1.0` is not part of this repository's history and must not be used.
 
-Current `main` contains CLI development version `0.4.0-dev`, which is not a published CLI Release. Formal CLI installation remains pinned to `v0.3.0` below. Desktop `0.1.0-beta.1` is published separately as a pre-release.
+Current `main` contains CLI development version `0.4.0-dev`, which is not a published CLI Release. Formal CLI installation remains pinned to `v0.3.0` below. The latest published Desktop remains the separate `0.1.0-beta.1` pre-release; `main` contains information-architecture and workflow improvements for the next Desktop beta, but they have not been versioned, rebuilt as final candidates, or published.
 
 **This changes Grok's global behavior, not a per-project setting**: deployment writes `~/.grok/rules/99-keysmith.md` (home rules, always scanned by every session) and injects a compat isolation block into `~/.grok/config.toml` — disabling every Claude/Cursor compatibility surface and separately disabling Codex session import. **`~/.grok/AGENTS.md` is no longer touched by this tool**: a persona card, agent profile, or any global instruction can keep living there, fully decoupled from the keysmith deployment. The bundled instruction is a delivery contract covering reverse engineering and penetration testing workflows (local-fixture/placeholder framing) and measurably reduces refusal framing for sensitive requests. **This is a broad behavior change, not a safety boundary** — read [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md) before using it, or supply your own file with `--file`.
 
@@ -37,6 +37,8 @@ The covered boundary is model-version-dependent and shifts with model updates; G
 - Windows x64: [`grok-keysmith_0.1.0-beta.1_x64-setup.exe`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/grok-keysmith_0.1.0-beta.1_x64-setup.exe)
 
 Both packages bundle the `grok-keysmith-cli` sidecar and do not require a separate Python installation. Verify them with the Release [`SHA256SUMS`](https://github.com/Jia-Ethan/grok-keysmith/releases/download/desktop-v0.1.0-beta.1/SHA256SUMS); see [`docs/releases/desktop-v0.1.0-beta.1.md`](docs/releases/desktop-v0.1.0-beta.1.md) for the complete build boundary.
+
+The current Desktop source on `main` limits top-level navigation to Status, Deploy, Manage, and Settings, moves Run/Test into an opt-in Advanced tools view, and presents status, previews, errors, and diagnostics as user summaries with technical details on demand. These changes are not in the published beta.1 installers; a formal release requires a new version, tag, and artifacts rebuilt from the final version commit.
 
 ### Quick start (macOS / Linux)
 

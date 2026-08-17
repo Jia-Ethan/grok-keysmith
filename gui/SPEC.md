@@ -1,6 +1,6 @@
 # grok-keysmith GUI
 
-Desktop 0.1.0-beta.1 wraps the Python CLI. The UI never writes `~/.grok` itself.
+The current Desktop source wraps the Python CLI. The latest published Desktop is `0.1.0-beta.1`; post-beta.1 changes on `main` remain unversioned and unreleased. The UI never writes `~/.grok` itself.
 
 Stack: Tauri 2 + React 19 + Tailwind 4 + Radix + Motion + PyInstaller sidecar `grok-keysmith-cli`.
 
