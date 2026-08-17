@@ -158,7 +158,7 @@ grok-keysmith/
 ├── grok-unrestricted.sh/.ps1     # Runner 包装
 ├── examples/grok-unrestricted.md
 ├── tests/                        # 隔离 HOME / fake Grok 测试
-├── gui/                          # Desktop 0.1.0-beta.1
+├── gui/                          # Desktop source (published beta.1; next beta changes on main)
 ├── VERSION
 ├── docs/
 ├── README.md / README.en.md

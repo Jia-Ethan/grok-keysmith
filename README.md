@@ -44,6 +44,8 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.3.0`）的已校验单文件，或 checkout 同一 tag。该版本没有 `--json` / `--grok-dir`。不要从浮动 `main`（`0.4.0-dev`）当稳定版安装。
 2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌开发版 CLI sidecar。无签名、无自动更新、无 Linux GUI。
 
+已发布的 Desktop 仍是 beta.1。`main` 已包含下一版 Desktop 的信息架构与操作流程改进：首层导航收敛为状态、部署、管理和设置，运行/测试移入默认关闭的高级工具，状态与诊断改为用户摘要加按需技术详情。这些变化尚未版本化或发布；正式安装包必须从新的最终版本提交或 tag 重新构建。
+
 ### 快速开始
 
 **Release 单文件（推荐）：**

@@ -25,6 +25,8 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - Status states: `not-installed`, `active-aligned`, `inactive`, `drift`, `conflict`, `recovery-required`.
 - `--restore-hooks` restores only hooks owned by the current manifest.
 - Fresh `config.toml` always receives a marked compat block.
+- Desktop top-level navigation now focuses on Status, Deploy, Manage, and Settings; Run and Test live under an opt-in Advanced tools entry, with legacy deep links preserved.
+- Desktop status, deploy, manage, and diagnostics surfaces now use user-facing summaries with raw plans, identifiers, and diagnostics available only through collapsed technical details.
 
 ### Docs
 
@@ -35,6 +37,8 @@ Development version `0.4.0-dev`. Not a GitHub Release.
 - `GROK_KEYSMIth_CONTRACT` is only a deprecated alias of `GROK_KEYSMITH_CONTRACT`.
 - Historical breaktest scripts no longer hardcode a user home path.
 - Windows checks use canonical paths and LF prompt bytes; native `grok.exe` is preferred and `.cmd` / `.bat` override launches fail with an actionable diagnostic.
+- Desktop write actions are gated by managed, hook-ownership, drift/conflict, and interrupted-transaction state while preserving fresh preview binding, exclusive operation leases, and post-write verification.
+- Diagnostic export recursively redacts local absolute paths, and the GUI audit now covers 43 responsive, theme, failure, confirmation, recovery, diagnostics, and legacy-navigation scenarios.
 
 ## [Desktop 0.1.0-beta.1] - 2026-08-14
 

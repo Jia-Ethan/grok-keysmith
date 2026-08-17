@@ -44,6 +44,8 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 1. **Conservative: stable CLI.** Use the verified single file from the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.3.0`), or check out the same tag. That build has neither `--json` nor `--grok-dir`. Do not treat floating `main` (`0.4.0-dev`) as the stable install.
 2. **Easier: unsigned Desktop Beta.** See [desktop-v0.1.0-beta.1](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1): macOS Apple Silicon DMG and Windows x64 NSIS, embedding a development CLI sidecar. No signing, no auto-update, no Linux GUI.
 
+The latest published Desktop remains beta.1. `main` contains information-architecture and workflow improvements for the next Desktop beta: top-level navigation is limited to Status, Deploy, Manage, and Settings; Run/Test move into an opt-in Advanced tools view; status and diagnostics use user summaries with technical details on demand. These changes are not versioned or published yet; formal installers must be rebuilt from a new final version commit or tag.
+
 ### Quick start
 
 **Release single file (recommended):**
