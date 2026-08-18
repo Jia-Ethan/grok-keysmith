@@ -74,6 +74,8 @@ export function managePlanSummary(plan, kind, t) {
       : t("manage.planGeneric"));
   } else if (kind === "restore") {
     lines.push(t("manage.planRestoreHooks"));
+  } else if (kind === "reconcile") {
+    lines.push(t("manage.planReconcile"));
   } else {
     lines.push(t("manage.planUninstall"));
   }
@@ -96,12 +98,15 @@ export function manageStatusPresentation(result, t) {
     || result?.nodes?.rule?.kind === "regular"
     || result?.compat?.present === true
   );
+  const repairable = result?.compat?.repairable === true && residue.length === 0;
   const issueLines = [];
-  if (drift.length) issueLines.push(t("dash.summary.drift"));
+  if (repairable) issueLines.push(t("dash.summary.repairable"));
+  else if (drift.length) issueLines.push(t("dash.summary.drift"));
   if (conflicts.length) issueLines.push(t("dash.summary.conflict"));
   if (residue.length) issueLines.push(t("dash.summary.recovery-required"));
   return {
     installed,
+    canReconcile: repairable,
     canUninstall: installed && residue.length === 0,
     canRestore: ownedDisabled.length > 0 && residue.length === 0,
     canRecover: residue.length > 0,

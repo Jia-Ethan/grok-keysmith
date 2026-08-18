@@ -202,7 +202,9 @@ async function installTauriMock(page, config) {
               ? "restore"
               : args.includes("--recover")
                 ? "recover"
-                : "deploy";
+                : args.includes("--reconcile")
+                  ? "reconcile"
+                  : "deploy";
           const isApply = args.includes("--yes") || args.includes("--expected-preview-token");
           if (!isApply) return response(preview(kind));
           return response({
@@ -461,10 +463,11 @@ async function runManageScenarios() {
         card.querySelector("button")?.disabled,
       ]),
     ));
+    failUnless(gates.reconcile === true, `${id}: reconcile should be disabled while not repairable`);
     failUnless(gates.uninstall === true, `${id}: uninstall should be disabled while not installed`);
     failUnless(gates.restore === true, `${id}: restore should be disabled without owned disabled hooks`);
     failUnless(gates.recover === true, `${id}: recover should be disabled without residue`);
-    await screenshot(page, { id, url, assertions: ["uninstall, restore, and recover gates disabled"] });
+    await screenshot(page, { id, url, assertions: ["reconcile, uninstall, restore, and recover gates disabled"] });
     await context.close();
   }
   {

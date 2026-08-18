@@ -87,19 +87,21 @@ python3 grok-keysmith.py --yes
 ### 如何撤销
 
 ```bash
+python3 grok-keysmith.py --reconcile            # 预览：compat 值仍对齐时重建 marker
+python3 grok-keysmith.py --reconcile --yes      # 实际修复配置标记
 python3 grok-keysmith.py --restore-hooks        # 预览 hooks 恢复计划
 python3 grok-keysmith.py --restore-hooks --yes  # 实际恢复 hooks
 python3 grok-keysmith.py --uninstall            # 预览完整卸载
 python3 grok-keysmith.py --uninstall --yes      # 实际执行完整卸载
 ```
 
-中断事务先 `--status`，再 `--recover` 预览，确认后加 `--yes`。v0.1.x 写在 `AGENTS.md` 的旧部署仍可卸载，但会先做内容所有权校验。
+formatter 或设置页重写了 `config.toml`、三组 `[compat.*]` 取值仍完全一致时，`--status` 会标成可修复 drift。先 `--reconcile` 预览，确认后再加 `--yes`；不要用 `--recover`（那是中断事务回滚）。中断事务先 `--status`，再 `--recover` 预览，确认后加 `--yes`。v0.1.x 写在 `AGENTS.md` 的旧部署仍可卸载，但会先做内容所有权校验。
 
 ### 平台与 Beta 限制
 
 - CLI CI 覆盖 macOS / Linux / Windows；Python 3.8+。Windows 上 `override` / `ab` 需要原生 `grok.exe`。
 - Desktop：仅 macOS Apple Silicon 与 Windows x64，未签名。
-- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.4.0` 提供 `--json`、`--grok-dir`、`run` 与 `breaktest`。
+- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.4.0` 提供 `--json`、`--grok-dir`、`run` 与 `breaktest`。本仓库当前代码是 `0.4.1`（尚未打 tag），增加 `--reconcile`。
 
 ### 进阶文档
 

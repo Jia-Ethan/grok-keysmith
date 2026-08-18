@@ -4,9 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] - Unreleased
 
-No unreleased user-visible changes are recorded yet.
+### Added
+
+- Preview-first `--reconcile` restores keysmith begin/end markers when `[compat.claude]` / `[compat.cursor]` / `[compat.codex]` values still match exactly, then updates only `layer.config.after`. Deploy, uninstall, and restore-hooks stay fail-closed until that repair.
+- Status JSON adds additive `compat.values_aligned` and `compat.repairable`. Marker-only / serialization drift is reported as `config fingerprint drifted; compat values aligned`.
+- Desktop Status and Manage expose the same preview-confirm repair path as “修复配置标记”.
+
+### Documentation
+
+- README and `docs/reference.md` document `--reconcile` and how it differs from `--recover`.
 
 ## [Desktop 0.1.0-beta.2] - 2026-08-17
 
@@ -239,6 +247,7 @@ version and does not include the earlier private-only predecessor.
 - Journal and manifest evidence protects against accidental drift and ordinary
   races, not coordinated same-user tampering.
 
+[0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...HEAD
 [Unreleased]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...HEAD
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1

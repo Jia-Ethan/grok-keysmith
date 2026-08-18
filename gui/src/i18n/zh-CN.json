@@ -49,6 +49,7 @@
     "errorHint": "暂时无法读取当前状态，请检查 CLI 后重试。",
     "nodeIssue": "受管文件状态异常",
     "configInactive": "Grok 配置尚未生效",
+    "configRepairable": "兼容隔离取值仍对齐，但标记或文件指纹已漂移",
     "health": "关键健康项",
     "rule": "规则",
     "grokConfig": "Grok 配置",
@@ -59,6 +60,7 @@
     "grokDir": "Grok 目录",
     "backupsCount": "备份 {{count}} 份",
     "recoverAction": "恢复中断操作",
+    "reconcileAction": "修复配置标记",
     "inspectIssues": "查看问题",
     "startDeploy": "开始部署",
     "summary": {
@@ -66,6 +68,7 @@
       "inactive": "规则已写入但当前未生效。",
       "not-installed": "尚未部署，开始部署后规则才会生效。",
       "drift": "Grok 配置已发生变化，与预期状态不一致。",
+      "repairable": "兼容隔离取值仍对齐，只需重新写入标记后即可继续卸载或部署。",
       "conflict": "检测到冲突内容，需要先处理后再继续。",
       "recovery-required": "存在中断的操作，建议立即恢复。"
     }
@@ -199,6 +202,8 @@
     "recover": "中断恢复",
     "recoverDesc": "清理中断操作留下的事务残留",
     "recoverAvailable": "检测到事务残留，建议恢复",
+    "reconcileDesc": "在兼容取值仍对齐时，重新写入标记并更新受管指纹",
+    "reconcileAvailable": "配置标记可安全修复",
     "issues": "需要处理的问题",
     "previewAction": "预览",
     "previewRequired": "请先预览，确认影响后再执行",
@@ -206,6 +211,7 @@
     "backupsSummary": "共 {{count}} 份备份",
     "latestBackup": "最近：{{name}}",
     "backupList": "完整备份列表",
+    "planReconcile": "将重新写入兼容隔离标记，并保留其他配置",
     "planUninstall": "将移除受管规则与配置，恢复部署前状态",
     "planRestoreHooks": "将重新启用本工具禁用的 hooks",
     "planCleanResidue": "将清理 {{count}} 项中断事务残留",
@@ -223,6 +229,7 @@
     "verifyStatus": "状态验证失败：{{state}}",
     "complete": "{{operation}}完成",
     "operation": {
+      "reconcile": "修复配置标记",
       "uninstall": "分层卸载",
       "restore": "恢复本工具 hooks",
       "recover": "中断恢复"
@@ -255,6 +262,7 @@
     "python": "Python"
   },
   "raw": {
+    "configRepairable": "兼容隔离取值仍对齐，标记或文件指纹已漂移",
     "configChanged": "Grok 配置已发生变化",
     "unexpectedContent": "检测到未预期的内容",
     "residue": "存在中断操作残留",

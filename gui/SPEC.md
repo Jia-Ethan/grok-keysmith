@@ -6,7 +6,7 @@ Stack: Tauri 2 + React 19 + Tailwind 4 + Radix + Motion + PyInstaller sidecar `g
 
 Pages: Status, Deploy, Manage, Settings. Run and Test live under Advanced tools, a single sidebar entry gated by the persisted Settings toggle "Show advanced tools" (default off); legacy `run`/`test` deep links map to its tabs.
 
-All lifecycle calls use `--json`. The envelope schema is `grok-keysmith.envelope.v1`.
+All lifecycle calls use `--json`. The envelope schema is `grok-keysmith.envelope.v1`. Lifecycle operations are status, deploy, uninstall, restore-hooks, recover, and reconcile.
 
 Rust invokes argument arrays only. Output is capped at 2 MiB. Timeouts kill the process group. The app is single-instance and holds a write mutex plus lifecycle leases.
 

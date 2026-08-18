@@ -33,6 +33,8 @@ const t = (key, params) => {
     "dash.backupsCount": `备份 ${params?.count} 份`,
     "dash.nodeIssue": "节点异常",
     "dash.configInactive": "配置未生效",
+    "dash.configRepairable": "标记可修复",
+    "raw.configRepairable": "兼容取值仍对齐",
   };
   return table[key] || key;
 };
@@ -66,6 +68,23 @@ describe("Dashboard 首层呈现", () => {
     // 正常状态不渲染空的 drift/conflict/residue 细节
     expect(model.health.find((row) => row.key === "config").detail).toBe("");
     expect(model.health.find((row) => row.key === "recovery").detail).toBe("");
+  });
+
+  it("可修复 drift 提供修复配置标记操作", () => {
+    const model = presentDashboard({
+      state: "drift",
+      grokDir: "/tmp/x/.grok",
+      result: makeResult({
+        state: "drift",
+        compat: { present: false, matches_expected: false, values_aligned: true, repairable: true },
+        drift: ["config fingerprint drifted; compat values aligned"],
+      }),
+    }, t);
+    expect(model.summaryKey).toBe("repairable");
+    expect(model.primaryAction).toEqual({ key: "reconcile", view: "manage" });
+    const config = model.health.find((row) => row.key === "config");
+    expect(config.ok).toBe(false);
+    expect(config.detail).toBe("兼容取值仍对齐");
   });
 
   it("drift 状态翻译已知原始错误并提供查看问题操作", () => {

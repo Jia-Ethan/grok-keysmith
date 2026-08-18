@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, History, LifeBuoy } from "lucide-react";
+import { Trash2, History, LifeBuoy, BookmarkPlus } from "lucide-react";
 import { cliExecute, fetchPreview, fetchStatus, isTauriMissing } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TechnicalDetails } from "@/components/TechnicalDetails";
@@ -21,18 +21,21 @@ import {
 import { cn } from "@/lib/utils";
 
 const OPERATIONS = [
+  { kind: "reconcile", icon: BookmarkPlus, danger: false },
   { kind: "uninstall", icon: Trash2, danger: true },
   { kind: "restore", icon: History, danger: false },
   { kind: "recover", icon: LifeBuoy, danger: true },
 ];
 
 const PREVIEW_ARGS = {
+  reconcile: ["--reconcile"],
   uninstall: ["--uninstall"],
   restore: ["--restore-hooks"],
   recover: ["--recover"],
 };
 
 const APPLY_ARGS = {
+  reconcile: ["--reconcile", "--yes"],
   uninstall: ["--uninstall", "--yes"],
   restore: ["--restore-hooks", "--yes"],
   recover: ["--recover", "--yes"],
@@ -177,6 +180,7 @@ export function Manage() {
           (kind === "uninstall" && state === "not-installed")
           || (kind === "recover" && state !== "recovery-required")
           || (kind === "restore" && !["conflict", "recovery-required"].includes(state))
+          || (kind === "reconcile" && state === "active-aligned")
         );
         if (!valid) verificationErrors.push(t("manage.verifyStatus", { state }));
       } catch (verifyError) {
@@ -216,8 +220,10 @@ export function Manage() {
       <div className="grid gap-3" aria-busy={busy}>
         {OPERATIONS.map(({ kind: opKind, icon: Icon, danger }) => {
           const isRecover = opKind === "recover";
+          const isReconcile = opKind === "reconcile";
           const enabled = cliReady && (
-            (opKind === "uninstall" && statusModel.canUninstall)
+            (opKind === "reconcile" && statusModel.canReconcile)
+            || (opKind === "uninstall" && statusModel.canUninstall)
             || (opKind === "restore" && statusModel.canRestore)
             || (opKind === "recover" && statusModel.canRecover)
           );
@@ -227,7 +233,7 @@ export function Manage() {
               data-operation={opKind}
               className={cn(
                 "card-glass flex flex-wrap items-center justify-between gap-3 p-5",
-                isRecover && statusModel.canRecover && "border-warn/50",
+                ((isRecover && statusModel.canRecover) || (isReconcile && statusModel.canReconcile)) && "border-warn/50",
               )}
             >
               <div className="flex min-w-0 items-start gap-3">
@@ -237,6 +243,9 @@ export function Manage() {
                     <h2 className="text-sm font-semibold">{t(`manage.operation.${opKind}`)}</h2>
                     {isRecover && statusModel.canRecover ? (
                       <Badge variant="yellow">{t("manage.recoverAvailable")}</Badge>
+                    ) : null}
+                    {isReconcile && statusModel.canReconcile ? (
+                      <Badge variant="yellow">{t("manage.reconcileAvailable")}</Badge>
                     ) : null}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{t(`manage.${opKind === "restore" ? "restoreHooks" : opKind}Desc`)}</p>

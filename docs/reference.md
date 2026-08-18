@@ -58,6 +58,22 @@ python3 grok-keysmith.py --uninstall --yes    # 执行
 
 卸载会：删除部署的指令文件（v0.2.x 为 `~/.grok/rules/99-keysmith.md`，v0.1.x 为 manifest 记录的路径）；从 `config.toml` 精确移除 compat 隔离块（按 begin/end marker）；把 `.json.disabled` hooks 恢复为 `.json`；把 manifest 归档为 `.uninstalled-<timestamp>`。删除前做内容所有权校验：当前文件 SHA-256 与 manifest 记录不一致时保留文件（防止误删后来替换的内容，如人物卡）。
 
+### 修复配置标记
+
+`--status` 的 `compat` 现有 `present` / `matches_expected`（仍按 begin/end marker 和整段子串判断），并增加：
+
+- `values_aligned`：三组 `[compat.claude]` / `[compat.cursor]` / `[compat.codex]` 的键集和布尔值与官方隔离块完全一致。
+- `repairable`：仅 config 指纹或 marker 漂移、上述取值仍对齐、且没有 rule/hook/backup drift、conflict 或中断 journal。
+
+可修复时 drift 文案为 `config fingerprint drifted; compat values aligned`。compat 值被改、表内多键/缺键、或解不了时仍是 `config content does not match managed after-state`，deploy / uninstall / restore-hooks 继续 fail-closed。
+
+```bash
+python3 grok-keysmith.py --reconcile          # 预览
+python3 grok-keysmith.py --reconcile --yes    # 执行
+```
+
+`--reconcile` 只重注入带 marker 的官方 compat 块（复用 `config_add_compat_block`），保留所有非 `[compat.*]` 键，并把 manifest 的 `layer.config.after` 更新为新文件指纹。不改 `deployment_id`、rule、hooks，也不改部署前的 `config.before` / `backup`。这与 `--recover` 不同：`--recover` 只回滚中断事务。
+
 ### 中断恢复
 
 如果部署被 SIGKILL 中断，`--status` 会检测到未达 committed/recovered 终态的 journal，标记"不可部署，请先 --recover"。
@@ -211,6 +227,22 @@ python3 grok-keysmith.py --uninstall --yes    # execute
 ```
 
 Removes the deployed instruction file (`~/.grok/rules/99-keysmith.md` for v0.2.x, or the manifest-recorded path for v0.1.x), strips the compat isolation block from `config.toml` (by begin/end markers), restores `.json.disabled` hooks, and archives the manifest. Deletion is ownership-checked: a file whose current SHA-256 no longer matches the manifest record is preserved.
+
+### Reconcile config markers
+
+`--status` keeps `compat.present` / `compat.matches_expected` as marker and substring checks, and adds:
+
+- `values_aligned`: the `[compat.claude]`, `[compat.cursor]`, and `[compat.codex]` key sets and boolean values match the official isolation block exactly.
+- `repairable`: only config fingerprint or marker drift, those values still match, and there is no rule/hook/backup drift, conflict, or interrupted journal.
+
+Repairable drift is reported as `config fingerprint drifted; compat values aligned`. A real value change, extra/missing keys inside those tables, or an unparseable line stays `config content does not match managed after-state`, and deploy / uninstall / restore-hooks remain fail-closed.
+
+```bash
+python3 grok-keysmith.py --reconcile          # preview
+python3 grok-keysmith.py --reconcile --yes    # apply
+```
+
+`--reconcile` re-injects the marked official compat block (via `config_add_compat_block`), leaves every non-`[compat.*]` key in place, and updates only `layer.config.after`. It does not change `deployment_id`, the rule, hooks, or the pre-deploy `config.before` / `backup`. This is not `--recover`; `--recover` only rolls back an interrupted journal.
 
 ### Recovery
 

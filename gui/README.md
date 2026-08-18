@@ -5,7 +5,7 @@ Version `0.1.0-beta.2` is published as [`desktop-v0.1.0-beta.2`](https://github.
 - macOS: `grok-keysmith_0.1.0-beta.2_aarch64.dmg`
 - Windows: `grok-keysmith_0.1.0-beta.2_x64-setup.exe`
 
-Top-level navigation focuses on Status, Deploy, Manage, and Settings. Run and Test live under opt-in Advanced tools; primary surfaces show user summaries with technical details on demand. Write actions remain gated by managed ownership, drift/conflict, interrupted-transaction state, fresh preview binding, and post-write verification.
+Top-level navigation focuses on Status, Deploy, Manage, and Settings. Run and Test live under opt-in Advanced tools; primary surfaces show user summaries with technical details on demand. Write actions remain gated by managed ownership, drift/conflict, interrupted-transaction state, fresh preview binding, and post-write verification. Repairable marker/serialization drift is a dedicated Manage action (`--reconcile`), not `--recover`.
 
 On Windows, select the native `grok.exe` for Prompt Runner and Breaktest override modes; `.cmd` / `.bat` shims cannot carry the full contract.
 
