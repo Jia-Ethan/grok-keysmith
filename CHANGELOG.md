@@ -4,14 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Desktop 0.1.0-beta.3] - Unreleased
+## [Desktop 0.1.0-beta.3] - 2026-08-18
+
+Third desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.4.1`.
 
 ### Fixed
 
 - Repairable compat drift now exposes only the preview-confirm reconcile action; uninstall and hook restore remain gated until ownership is re-established.
 - The GUI audit covers fresh reconcile preview binding, exact confirmation-token apply, and post-write `active-aligned` verification.
 
-## [0.4.1] - Unreleased
+## [0.4.1] - 2026-08-18
 
 ### Added
 
@@ -259,8 +261,8 @@ version and does not include the earlier private-only predecessor.
 - Journal and manifest evidence protects against accidental drift and ordinary
   races, not coordinated same-user tampering.
 
-[0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...HEAD
-[Unreleased]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...HEAD
+[0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
+[Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1
 [0.4.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.3.0...v0.4.0
