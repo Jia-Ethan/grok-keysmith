@@ -449,6 +449,7 @@ def test_breaktest_lock_and_cooperative_cancel(isolated_home):
     bank = _bank(home)
     out = Path(home) / "bt-locked"
     cancel_file = Path(home) / "cancel.marker"
+    run_marker = Path(home) / "fake-grok-run"
     base = [
         sys.executable,
         "-B",
@@ -473,14 +474,16 @@ def test_breaktest_lock_and_cooperative_cancel(isolated_home):
         {
             "FAKE_GROK_MODE": "timeout",
             "FAKE_GROK_SLEEP": "30",
+            "FAKE_GROK_RUN_MARKER": str(run_marker),
             "GROK_KEYSMITH_CANCEL_FILE": str(cancel_file),
         },
     )
     first = subprocess.Popen(base, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     deadline = time.time() + 8
-    while time.time() < deadline and not (out / "run-manifest.json").is_file():
+    while time.time() < deadline and not run_marker.is_file():
         time.sleep(0.05)
     assert (out / "run-manifest.json").is_file()
+    assert run_marker.is_file()
 
     second = subprocess.run(base + ["--resume"], capture_output=True, text=True, env=env, timeout=8)
     second_envelope = json.loads(second.stdout)

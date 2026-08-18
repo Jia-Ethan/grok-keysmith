@@ -42,6 +42,9 @@ def main(argv=None):
             payload.update(json.loads(extra))
         sys.stdout.write(json.dumps(payload) + "\n")
         return 0
+    run_marker = os.environ.get("FAKE_GROK_RUN_MARKER")
+    if run_marker:
+        Path(run_marker).write_text("invoked\n", encoding="utf-8")
     if mode == "timeout":
         time.sleep(float(os.environ.get("FAKE_GROK_SLEEP", "30")))
         return 0
