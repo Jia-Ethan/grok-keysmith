@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "grok-keysmith-gui"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 dependencies = [
  "libc",
  "serde",

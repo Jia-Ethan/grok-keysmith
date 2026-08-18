@@ -152,13 +152,13 @@ describe("管理状态门禁", () => {
     expect(manageStatusPresentation({
       state: "drift",
       manifest: { deployment_id: "d1" },
-      hooks: { owned_disabled: [] },
+      hooks: { owned_disabled: ["managed.json.disabled"] },
       residue: [],
       drift: ["config fingerprint drifted; compat values aligned"],
       compat: { present: false, matches_expected: false, values_aligned: true, repairable: true },
     }, t)).toMatchObject({
       canReconcile: true,
-      canUninstall: true,
+      canUninstall: false,
       canRestore: false,
       canRecover: false,
       issueLines: ["兼容隔离取值仍对齐，只需重新写入标记。"],

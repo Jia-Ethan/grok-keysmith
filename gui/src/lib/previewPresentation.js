@@ -107,8 +107,8 @@ export function manageStatusPresentation(result, t) {
   return {
     installed,
     canReconcile: repairable,
-    canUninstall: installed && residue.length === 0,
-    canRestore: ownedDisabled.length > 0 && residue.length === 0,
+    canUninstall: installed && residue.length === 0 && !repairable,
+    canRestore: ownedDisabled.length > 0 && residue.length === 0 && !repairable,
     canRecover: residue.length > 0,
     issueLines,
     technicalDetails: rawValues(drift, conflicts, residue).join("\n"),

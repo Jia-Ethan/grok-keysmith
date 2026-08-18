@@ -60,7 +60,7 @@ python3 grok-keysmith.py --uninstall --yes    # 执行
 
 ### 修复配置标记
 
-`--status` 的 `compat` 现有 `present` / `matches_expected`（仍按 begin/end marker 和整段子串判断），并增加：
+`--status` 的 `compat` 现有 `present` / `matches_expected`（marker 只识别 TOML 结构上下文中的独立注释行），并增加：
 
 - `values_aligned`：三组 `[compat.claude]` / `[compat.cursor]` / `[compat.codex]` 的键集和布尔值与官方隔离块完全一致。
 - `repairable`：仅 config 指纹或 marker 漂移、上述取值仍对齐、且没有 rule/hook/backup drift、conflict 或中断 journal。
@@ -230,7 +230,7 @@ Removes the deployed instruction file (`~/.grok/rules/99-keysmith.md` for v0.2.x
 
 ### Reconcile config markers
 
-`--status` keeps `compat.present` / `compat.matches_expected` as marker and substring checks, and adds:
+`--status` keeps `compat.present` / `compat.matches_expected`; markers count only as standalone comment lines in TOML structural context. It also adds:
 
 - `values_aligned`: the `[compat.claude]`, `[compat.cursor]`, and `[compat.codex]` key sets and boolean values match the official isolation block exactly.
 - `repairable`: only config fingerprint or marker drift, those values still match, and there is no rule/hook/backup drift, conflict, or interrupted journal.

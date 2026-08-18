@@ -789,49 +789,171 @@ def compat_block_wrapped():
     )
 
 
+def _toml_line_contexts(content):
+    multiline = None
+    for line in content.splitlines(keepends=True):
+        structural = multiline is None
+        index = 0
+        quote = None
+        escaped = False
+        while index < len(line):
+            if multiline is not None:
+                closing = line.find(multiline, index)
+                while closing >= 0 and multiline == '"""':
+                    slashes = 0
+                    cursor = closing - 1
+                    while cursor >= 0 and line[cursor] == "\\":
+                        slashes += 1
+                        cursor -= 1
+                    if slashes % 2 == 0:
+                        break
+                    closing = line.find(multiline, closing + 3)
+                if closing < 0:
+                    break
+                index = closing + 3
+                multiline = None
+                continue
+            char = line[index]
+            if quote == '"':
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                index += 1
+                continue
+            if quote == "'":
+                if char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char == "#":
+                break
+            if line.startswith('"""', index) or line.startswith("'''", index):
+                multiline = line[index : index + 3]
+                index += 3
+                continue
+            if char in {'"', "'"}:
+                quote = char
+            index += 1
+        yield line, structural
+
+
+def _is_marker_line(line, marker, structural=True):
+    return structural and line.strip() == marker
+
+
 def config_has_compat_block(content):
-    return COMPAT_BLOCK_BEGIN_MARKER in content and COMPAT_BLOCK_END_MARKER in content
+    in_block = False
+    for line, structural in _toml_line_contexts(content):
+        if _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+            in_block = True
+        elif in_block and _is_marker_line(
+            line, COMPAT_BLOCK_END_MARKER, structural
+        ):
+            return True
+    return False
+
+
+def _table_header(line):
+    stripped = line.strip()
+    if stripped.startswith("[["):
+        closing = "]]"
+        index = 2
+    elif stripped.startswith("["):
+        closing = "]"
+        index = 1
+    else:
+        return None
+    quote = None
+    escaped = False
+    while index < len(stripped):
+        char = stripped[index]
+        if quote == '"':
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif quote == "'":
+            if char == quote:
+                quote = None
+        elif char in {'"', "'"}:
+            quote = char
+        elif stripped.startswith(closing, index):
+            end = index + len(closing)
+            rest = stripped[end:].strip()
+            if rest and not rest.startswith("#"):
+                return None
+            return stripped[:end]
+        index += 1
+    return None
 
 
 def _is_table_header(line):
-    stripped = line.strip()
-    return stripped.startswith("[") and (stripped.endswith("]") or stripped.endswith("]."))
+    return _table_header(line) is not None
 
 
 def config_remove_compat_block(content):
-    while True:
-        begin = content.find(COMPAT_BLOCK_BEGIN_MARKER)
-        if begin < 0:
-            break
-        end = content.find(COMPAT_BLOCK_END_MARKER, begin)
-        if end < 0:
-            break
-        end_line_end = content.find("\n", end)
-        if end_line_end < 0:
-            end_line_end = len(content)
+    out = []
+    pending = []
+    in_block = False
+    for line, structural in _toml_line_contexts(content):
+        if not in_block:
+            if _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+                in_block = True
+                pending = []
+            elif _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural):
+                # An orphan marker is owned metadata, but it must not consume content.
+                continue
+            else:
+                out.append(line)
+            continue
+        if _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural):
+            in_block = False
+            pending = []
+        elif _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+            # Preserve content after an orphan begin before recognizing a real block.
+            out.extend(pending)
+            pending = []
         else:
-            end_line_end += 1
-        content = content[:begin] + content[end_line_end:]
+            pending.append(line)
+    if in_block:
+        # A lone begin marker does not own the following user content.
+        out.extend(pending)
+    content = "".join(out)
     while content.endswith("\n\n\n"):
         content = content[:-1]
     return content
 
 
+def config_remove_compat_markers(content):
+    return "".join(
+        line
+        for line, structural in _toml_line_contexts(content)
+        if not _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural)
+        and not _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural)
+    )
+
+
 def config_strip_external_compat_sections(content):
-    lines = content.splitlines(keepends=True)
     out = []
     skipping = False
     removed = []
-    for line in lines:
-        stripped = line.strip()
+    for line, structural in _toml_line_contexts(content):
         if skipping:
-            if _is_table_header(line) or stripped == COMPAT_BLOCK_BEGIN_MARKER:
+            if (structural and _is_table_header(line)) or _is_marker_line(
+                line, COMPAT_BLOCK_BEGIN_MARKER, structural
+            ):
                 skipping = False
             else:
                 continue
-        if (not skipping) and stripped in COMPAT_TABLE_HEADERS:
+        header = _compat_table_header(line) if structural else None
+        if (not skipping) and header in COMPAT_TABLE_HEADERS:
             skipping = True
-            removed.append(stripped)
+            removed.append(header)
             continue
         if not skipping:
             out.append(line)
@@ -842,8 +964,10 @@ def config_strip_external_compat_sections(content):
 
 
 def config_add_compat_block(content):
+    # Reconcile may be repairing damaged marker placement. Remove marker lines
+    # without trusting them to own any intervening user configuration.
+    content = config_remove_compat_markers(content)
     content, removed = config_strip_external_compat_sections(content)
-    content = config_remove_compat_block(content)
     if content and not content.endswith("\n"):
         content += "\n"
     content += compat_block_wrapped()
@@ -855,24 +979,16 @@ _COMPAT_BOOLS = {"true": True, "false": False}
 
 
 def _compat_table_header(line):
-    stripped = line.strip()
-    if not stripped.startswith("["):
-        return None
-    end = stripped.find("]")
-    if end < 0:
-        return None
-    header = stripped[: end + 1]
-    rest = stripped[end + 1 :].strip()
-    if rest and not rest.startswith("#"):
-        return None
-    return header
+    return _table_header(line)
 
 
 def parse_compat_table_values(content):
     tables = {}
     current = None
     in_compat = False
-    for raw_line in content.splitlines():
+    for raw_line, structural in _toml_line_contexts(content):
+        if not structural:
+            continue
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
             continue
