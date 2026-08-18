@@ -68,7 +68,7 @@ const preview = spawn(
 
 const BASE_URL = "http://127.0.0.1:4173/";
 const SHA = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898";
-const LONG_CLI_VERSION = `grok-keysmith 0.4.0 bundled prompt SHA-256: ${SHA}`;
+const LONG_CLI_VERSION = `grok-keysmith 0.4.1 bundled prompt SHA-256: ${SHA}`;
 const LONG_GROK_DIR = "/tmp/fixture/users/someone-with-a-very-long-home-directory-name/Library/Application Support/Grok/.grok";
 const failures = [];
 const evidence = [];
@@ -81,6 +81,7 @@ function statusEnvelope({
   conflicts = [],
   backups = ["grok-backup-20260817-1200.tar.gz"],
   ownedDisabled = ["managed-hook"],
+  compat = null,
 } = {}) {
   const installed = state !== "not-installed";
   return {
@@ -101,7 +102,7 @@ function statusEnvelope({
         config: { kind: installed ? "regular" : "missing" },
         manifest: { kind: installed ? "regular" : "missing" },
       },
-      compat: { present: installed, matches_expected: installed },
+      compat: compat || { present: installed, matches_expected: installed },
       hooks: {
         active: [],
         disabled: ownedDisabled,
@@ -133,6 +134,7 @@ async function installTauriMock(page, config) {
     let callbackId = 0;
     let eventId = 0;
     const calls = [];
+    let currentStatus = mock.status;
     window.__fixtureCalls = calls;
 
     const response = (envelope) => ({
@@ -149,7 +151,7 @@ async function installTauriMock(page, config) {
       ok: true,
       exit_code: 0,
       diagnostics: [],
-      target: { grok_dir: mock.status.target.grok_dir },
+      target: { grok_dir: currentStatus.target.grok_dir },
       plan: {
         blockers: [],
         confirmation_token: `${kind}-fixture-confirmation-token`,
@@ -191,25 +193,35 @@ async function installTauriMock(page, config) {
           };
         }
         if (command === "read_manifest") {
-          return { deployment_id: "fixture-deployment-0001", prompt_sha256: mock.status.result.manifest?.prompt_sha256 || "" };
+          return { deployment_id: "fixture-deployment-0001", prompt_sha256: currentStatus.result.manifest?.prompt_sha256 || "" };
         }
         if (command === "cli_run") {
           const args = payload.args || [];
-          if (args.includes("--status")) return response(mock.status);
+          if (args.includes("--status")) return response(currentStatus);
           const kind = args.includes("--uninstall")
             ? "uninstall"
             : args.includes("--restore-hooks")
               ? "restore"
               : args.includes("--recover")
                 ? "recover"
-                : "deploy";
+                : args.includes("--reconcile")
+                  ? "reconcile"
+                  : "deploy";
           const isApply = args.includes("--yes") || args.includes("--expected-preview-token");
           if (!isApply) return response(preview(kind));
+          const expectedToken = args[args.indexOf("--expected-preview-token") + 1];
+          if (kind === "reconcile") {
+            currentStatus = statusEnvelope({
+              state: "active-aligned",
+              ownedDisabled: currentStatus.result.hooks?.owned_disabled || [],
+              backups: currentStatus.result.backups || [],
+            });
+          }
           return response({
             ...preview(kind),
             preview: false,
             apply: true,
-            result: { deployment_id: "fixture-deployment-0002" },
+            result: { deployment_id: "fixture-deployment-0002", expected_preview_token: expectedToken },
           });
         }
         if (command === "default_breaktest_run_dir") return "fixture-breaktest-run";
@@ -461,10 +473,11 @@ async function runManageScenarios() {
         card.querySelector("button")?.disabled,
       ]),
     ));
+    failUnless(gates.reconcile === true, `${id}: reconcile should be disabled while not repairable`);
     failUnless(gates.uninstall === true, `${id}: uninstall should be disabled while not installed`);
     failUnless(gates.restore === true, `${id}: restore should be disabled without owned disabled hooks`);
     failUnless(gates.recover === true, `${id}: recover should be disabled without residue`);
-    await screenshot(page, { id, url, assertions: ["uninstall, restore, and recover gates disabled"] });
+    await screenshot(page, { id, url, assertions: ["reconcile, uninstall, restore, and recover gates disabled"] });
     await context.close();
   }
   {
@@ -497,6 +510,78 @@ async function runManageScenarios() {
     failUnless(dialogText.includes("分层卸载"), `${id}: wrong confirmation title`);
     failUnless(!dialogText.includes("fixture-confirmation-token"), `${id}: confirmation leaks token`);
     await screenshot(page, { id, url, assertions: ["manage preview -> confirmation interaction", "token hidden"] });
+    await context.close();
+  }
+  {
+    const id = "manage-repairable-reconcile-flow";
+    const status = statusEnvelope({
+      state: "drift",
+      drift: ["config fingerprint drifted; compat values aligned"],
+      compat: { present: false, matches_expected: false, values_aligned: true, repairable: true },
+    });
+    const { context, page, url } = await openPage({
+      id,
+      query: "theme=light&view=dashboard",
+      tauri: mockConfig({ status }),
+    });
+    await page.waitForFunction(() => document.body.innerText.includes("兼容隔离取值仍对齐"));
+    await page.evaluate(() => {
+      [...document.querySelectorAll("button")].find((item) => item.textContent.trim() === "修复配置标记")?.click();
+    });
+    await page.waitForFunction(() => document.querySelector('[data-operation="reconcile"] button'));
+    const gates = await page.evaluate(() => Object.fromEntries(
+      [...document.querySelectorAll("[data-operation]")].map((card) => [
+        card.dataset.operation,
+        card.querySelector("button")?.disabled,
+      ]),
+    ));
+    failUnless(gates.reconcile === false, `${id}: reconcile should be enabled for repairable drift`);
+    failUnless(gates.uninstall === true, `${id}: uninstall should remain disabled until reconcile completes`);
+    failUnless(gates.restore === true, `${id}: restore should remain disabled until reconcile completes`);
+    failUnless(gates.recover === true, `${id}: recover should remain disabled without transaction residue`);
+
+    await page.evaluate(() => document.querySelector('[data-operation="reconcile"] button')?.click());
+    await page.waitForSelector('[role="alertdialog"]');
+    const previewCalls = await page.evaluate(() => window.__fixtureCalls.filter((call) => (
+      call.command === "cli_run"
+      && call.payload?.args?.includes("--reconcile")
+      && !call.payload?.args?.includes("--yes")
+    )).length);
+    failUnless(previewCalls === 1, `${id}: expected one reconcile preview before confirmation, got ${previewCalls}`);
+
+    await page.evaluate(() => {
+      const dialog = document.querySelector('[role="alertdialog"]');
+      [...dialog.querySelectorAll("button")].find((item) => item.textContent.trim() === "确认")?.click();
+    });
+    await page.waitForFunction(() => {
+      const calls = window.__fixtureCalls.filter((call) => call.command === "cli_run");
+      return calls.filter((call) => call.payload?.args?.includes("--reconcile")).length >= 3
+        && calls.filter((call) => call.payload?.args?.includes("--status")).length >= 2;
+    }, { timeout: 10_000 });
+    const calls = await page.evaluate(() => window.__fixtureCalls.filter((call) => call.command === "cli_run"));
+    const reconcileCalls = calls.filter((call) => call.payload?.args?.includes("--reconcile"));
+    const statusCalls = calls.filter((call) => call.payload?.args?.includes("--status"));
+    const applyCall = reconcileCalls.find((call) => call.payload?.args?.includes("--yes"));
+    const tokenIndex = applyCall?.payload?.args?.indexOf("--expected-preview-token") ?? -1;
+    failUnless(reconcileCalls.filter((call) => !call.payload?.args?.includes("--yes")).length === 2,
+      `${id}: confirmation must fetch a fresh reconcile preview`);
+    failUnless(
+      tokenIndex >= 0 && applyCall.payload.args[tokenIndex + 1] === "reconcile-fixture-confirmation-token",
+      `${id}: reconcile apply must use the fresh preview token`,
+    );
+    failUnless(statusCalls.length >= 2, `${id}: reconcile apply must verify status after writing`);
+    const visibleText = await page.evaluate(() => document.querySelector("main")?.innerText || "");
+    failUnless(!visibleText.includes("写入完成但验证失败"), `${id}: reconcile post-write verification failed`);
+    await screenshot(page, {
+      id,
+      url,
+      assertions: [
+        "repairable Dashboard action opens Manage",
+        "only reconcile enabled before repair",
+        "fresh preview and expected token used",
+        "status verified as active-aligned",
+      ],
+    });
     await context.close();
   }
 }

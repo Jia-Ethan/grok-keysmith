@@ -3,6 +3,10 @@
 
 const RAW_MESSAGE_PATTERNS = [
   {
+    pattern: /compat values aligned/i,
+    key: "raw.configRepairable",
+  },
+  {
     pattern: /content does not match managed after-state/i,
     key: "raw.configChanged",
   },

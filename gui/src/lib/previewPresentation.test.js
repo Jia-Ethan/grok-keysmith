@@ -21,6 +21,7 @@ const t = (key, params) => {
     "deploy.stripCompat": "将移除外部 compat 配置",
     "deploy.blocked": "存在阻塞，无法部署",
     "deploy.confirmBody": `目标目录：${params?.dir}\n来源：${params?.source}\n将修改 Grok 规则与配置，CLI 会自动备份。`,
+    "manage.planReconcile": "将重新写入兼容隔离标记，并保留其他配置",
     "manage.planUninstall": "将移除受管规则与配置，恢复部署前状态",
     "manage.planRestoreHooks": "将重新启用本工具禁用的 hooks",
     "manage.planCleanResidue": `将清理 ${params?.count} 项中断事务残留`,
@@ -31,6 +32,7 @@ const t = (key, params) => {
     "common.issue.changed": "目标状态已变化，请刷新后重试",
     "common.issue.conflict": "检测到冲突，需要先处理",
     "common.issue.generic": "操作暂时无法继续，请查看技术详情",
+    "dash.summary.repairable": "兼容隔离取值仍对齐，只需重新写入标记。",
     "dash.summary.drift": "Grok 配置已发生变化，与预期状态不一致。",
     "dash.summary.conflict": "检测到冲突内容，需要先处理后再继续。",
     "dash.summary.recovery-required": "存在中断的操作，建议立即恢复。",
@@ -104,6 +106,7 @@ describe("管理页确认呈现", () => {
   it("restore/uninstall 使用用户语言", () => {
     expect(managePlanSummary({}, "restore", t)[0]).toContain("hooks");
     expect(managePlanSummary({}, "uninstall", t)[0]).toContain("部署前状态");
+    expect(managePlanSummary({}, "reconcile", t)[0]).toContain("兼容隔离标记");
   });
 
   it("plan 为 null 时退回通用描述", () => {
@@ -125,6 +128,7 @@ describe("管理状态门禁", () => {
       hooks: { owned_disabled: [] },
       residue: [],
     }, t)).toMatchObject({
+      canReconcile: false,
       canUninstall: false,
       canRestore: false,
       canRecover: false,
@@ -141,6 +145,23 @@ describe("管理状态门禁", () => {
       canUninstall: false,
       canRestore: false,
       canRecover: true,
+    });
+  });
+
+  it("可修复 drift 只开放 reconcile", () => {
+    expect(manageStatusPresentation({
+      state: "drift",
+      manifest: { deployment_id: "d1" },
+      hooks: { owned_disabled: ["managed.json.disabled"] },
+      residue: [],
+      drift: ["config fingerprint drifted; compat values aligned"],
+      compat: { present: false, matches_expected: false, values_aligned: true, repairable: true },
+    }, t)).toMatchObject({
+      canReconcile: true,
+      canUninstall: false,
+      canRestore: false,
+      canRecover: false,
+      issueLines: ["兼容隔离取值仍对齐，只需重新写入标记。"],
     });
   });
 

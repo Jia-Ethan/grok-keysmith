@@ -1,7 +1,7 @@
 {
   "name": "grok-keysmith-gui",
   "private": true,
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "type": "module",
   "scripts": {
     "dev": "vite",

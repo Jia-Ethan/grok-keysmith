@@ -41,7 +41,7 @@ journal、intent、manifest、cleanup evidence 是防止意外漂移和普通并
 
 ## prompt 完整性与 SHA-256 校验
 
-v0.4.0 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/rules/99-keysmith.md` 的内容应与源文件 byte-for-byte 一致。
+v0.4.1 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/rules/99-keysmith.md` 的内容应与源文件 byte-for-byte 一致。
 
 部署后应校验:
 
@@ -94,7 +94,7 @@ Journal, intent, manifest, and cleanup-marker data is consistency evidence again
 
 ## Prompt integrity and SHA-256 verification
 
-The v0.4.0 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/rules/99-keysmith.md` should match the source file byte-for-byte.
+The v0.4.1 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/rules/99-keysmith.md` should match the source file byte-for-byte.
 
 Verify after deployment:
 

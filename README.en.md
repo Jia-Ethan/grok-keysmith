@@ -87,19 +87,21 @@ python3 grok-keysmith.py --yes
 ### How to undo
 
 ```bash
+python3 grok-keysmith.py --reconcile            # Preview: restore markers when compat values still match
+python3 grok-keysmith.py --reconcile --yes      # Restore the marked compat block
 python3 grok-keysmith.py --restore-hooks        # Preview the hooks restore plan
 python3 grok-keysmith.py --restore-hooks --yes  # Restore hooks
 python3 grok-keysmith.py --uninstall            # Preview the full uninstall
 python3 grok-keysmith.py --uninstall --yes      # Run the full uninstall
 ```
 
-For an interrupted transaction, run `--status`, preview with `--recover`, then add `--yes`. v0.1.x deployments that wrote `AGENTS.md` remain uninstallable after a content-ownership check.
+If a formatter or settings UI rewrote `config.toml` but the three `[compat.*]` tables still match exactly, `--status` reports a repairable drift. Preview with `--reconcile`, then add `--yes`. Do not use `--recover` for that case; `--recover` only rolls back an interrupted journal. For an interrupted transaction, run `--status`, preview with `--recover`, then add `--yes`. v0.1.x deployments that wrote `AGENTS.md` remain uninstallable after a content-ownership check.
 
 ### Platforms and Beta limits
 
 - CLI CI covers macOS / Linux / Windows; Python 3.8+. Windows `override` / `ab` need a native `grok.exe`.
 - Desktop: macOS Apple Silicon and Windows x64 only; unsigned.
-- Versions and assets live on [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases). `v0.4.0` provides `--json`, `--grok-dir`, `run`, and `breaktest`.
+- Versions and assets live on [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases). `v0.4.0` provides `--json`, `--grok-dir`, `run`, and `breaktest`. This tree is `0.4.1` (untagged) and adds `--reconcile`.
 
 ### Advanced docs
 

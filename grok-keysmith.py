@@ -17,6 +17,7 @@ Usage:
   grok-keysmith.py --uninstall --yes
   grok-keysmith.py --restore-hooks --yes
   grok-keysmith.py --recover --yes
+  grok-keysmith.py --reconcile --yes
   grok-keysmith.py --file custom.md --name my-rules --yes
   grok-keysmith.py --grok-dir /abs/path --json --status
   grok-keysmith.py run --mode default|override --prompt "..."
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -43,7 +45,7 @@ from pathlib import Path
 # Version and bundled prompt
 # ---------------------------------------------------------------------------
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 TOOL_NAME = "grok-keysmith"
 BUNDLED_PROMPT_SHA256 = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
 
@@ -246,7 +248,21 @@ TRANSACTION_PHASES = {
         "recovered",
         "committed",
     },
+    "reconcile": {
+        "initializing",
+        "snapshots-intent",
+        "prepared",
+        "config-intent",
+        "manifest-intent",
+        "recovering",
+        "recovered",
+        "committed",
+    },
 }
+
+CONFIG_FINGERPRINT_DRIFT = "config content does not match managed after-state"
+CONFIG_REPAIRABLE_DRIFT = "config fingerprint drifted; compat values aligned"
+COMPAT_VALUES_MISMATCH = "compat values are not aligned with the managed isolation block"
 
 STATE_NOT_INSTALLED = "not-installed"
 STATE_ACTIVE_ALIGNED = "active-aligned"
@@ -773,49 +789,171 @@ def compat_block_wrapped():
     )
 
 
+def _toml_line_contexts(content):
+    multiline = None
+    for line in content.splitlines(keepends=True):
+        structural = multiline is None
+        index = 0
+        quote = None
+        escaped = False
+        while index < len(line):
+            if multiline is not None:
+                closing = line.find(multiline, index)
+                while closing >= 0 and multiline == '"""':
+                    slashes = 0
+                    cursor = closing - 1
+                    while cursor >= 0 and line[cursor] == "\\":
+                        slashes += 1
+                        cursor -= 1
+                    if slashes % 2 == 0:
+                        break
+                    closing = line.find(multiline, closing + 3)
+                if closing < 0:
+                    break
+                index = closing + 3
+                multiline = None
+                continue
+            char = line[index]
+            if quote == '"':
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                index += 1
+                continue
+            if quote == "'":
+                if char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char == "#":
+                break
+            if line.startswith('"""', index) or line.startswith("'''", index):
+                multiline = line[index : index + 3]
+                index += 3
+                continue
+            if char in {'"', "'"}:
+                quote = char
+            index += 1
+        yield line, structural
+
+
+def _is_marker_line(line, marker, structural=True):
+    return structural and line.strip() == marker
+
+
 def config_has_compat_block(content):
-    return COMPAT_BLOCK_BEGIN_MARKER in content and COMPAT_BLOCK_END_MARKER in content
+    in_block = False
+    for line, structural in _toml_line_contexts(content):
+        if _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+            in_block = True
+        elif in_block and _is_marker_line(
+            line, COMPAT_BLOCK_END_MARKER, structural
+        ):
+            return True
+    return False
+
+
+def _table_header(line):
+    stripped = line.strip()
+    if stripped.startswith("[["):
+        closing = "]]"
+        index = 2
+    elif stripped.startswith("["):
+        closing = "]"
+        index = 1
+    else:
+        return None
+    quote = None
+    escaped = False
+    while index < len(stripped):
+        char = stripped[index]
+        if quote == '"':
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif quote == "'":
+            if char == quote:
+                quote = None
+        elif char in {'"', "'"}:
+            quote = char
+        elif stripped.startswith(closing, index):
+            end = index + len(closing)
+            rest = stripped[end:].strip()
+            if rest and not rest.startswith("#"):
+                return None
+            return stripped[:end]
+        index += 1
+    return None
 
 
 def _is_table_header(line):
-    stripped = line.strip()
-    return stripped.startswith("[") and (stripped.endswith("]") or stripped.endswith("]."))
+    return _table_header(line) is not None
 
 
 def config_remove_compat_block(content):
-    while True:
-        begin = content.find(COMPAT_BLOCK_BEGIN_MARKER)
-        if begin < 0:
-            break
-        end = content.find(COMPAT_BLOCK_END_MARKER, begin)
-        if end < 0:
-            break
-        end_line_end = content.find("\n", end)
-        if end_line_end < 0:
-            end_line_end = len(content)
+    out = []
+    pending = []
+    in_block = False
+    for line, structural in _toml_line_contexts(content):
+        if not in_block:
+            if _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+                in_block = True
+                pending = []
+            elif _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural):
+                # An orphan marker is owned metadata, but it must not consume content.
+                continue
+            else:
+                out.append(line)
+            continue
+        if _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural):
+            in_block = False
+            pending = []
+        elif _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural):
+            # Preserve content after an orphan begin before recognizing a real block.
+            out.extend(pending)
+            pending = []
         else:
-            end_line_end += 1
-        content = content[:begin] + content[end_line_end:]
+            pending.append(line)
+    if in_block:
+        # A lone begin marker does not own the following user content.
+        out.extend(pending)
+    content = "".join(out)
     while content.endswith("\n\n\n"):
         content = content[:-1]
     return content
 
 
+def config_remove_compat_markers(content):
+    return "".join(
+        line
+        for line, structural in _toml_line_contexts(content)
+        if not _is_marker_line(line, COMPAT_BLOCK_BEGIN_MARKER, structural)
+        and not _is_marker_line(line, COMPAT_BLOCK_END_MARKER, structural)
+    )
+
+
 def config_strip_external_compat_sections(content):
-    lines = content.splitlines(keepends=True)
     out = []
     skipping = False
     removed = []
-    for line in lines:
-        stripped = line.strip()
+    for line, structural in _toml_line_contexts(content):
         if skipping:
-            if _is_table_header(line) or stripped == COMPAT_BLOCK_BEGIN_MARKER:
+            if (structural and _is_table_header(line)) or _is_marker_line(
+                line, COMPAT_BLOCK_BEGIN_MARKER, structural
+            ):
                 skipping = False
             else:
                 continue
-        if (not skipping) and stripped in COMPAT_TABLE_HEADERS:
+        header = _compat_table_header(line) if structural else None
+        if (not skipping) and header in COMPAT_TABLE_HEADERS:
             skipping = True
-            removed.append(stripped)
+            removed.append(header)
             continue
         if not skipping:
             out.append(line)
@@ -826,12 +964,97 @@ def config_strip_external_compat_sections(content):
 
 
 def config_add_compat_block(content):
+    # Reconcile may be repairing damaged marker placement. Remove marker lines
+    # without trusting them to own any intervening user configuration.
+    content = config_remove_compat_markers(content)
     content, removed = config_strip_external_compat_sections(content)
-    content = config_remove_compat_block(content)
     if content and not content.endswith("\n"):
         content += "\n"
     content += compat_block_wrapped()
     return content, removed
+
+
+_COMPAT_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_COMPAT_BOOLS = {"true": True, "false": False}
+
+
+def _compat_table_header(line):
+    return _table_header(line)
+
+
+def parse_compat_table_values(content):
+    tables = {}
+    current = None
+    in_compat = False
+    for raw_line, structural in _toml_line_contexts(content):
+        if not structural:
+            continue
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        header = _compat_table_header(raw_line)
+        if header is not None:
+            if header in COMPAT_TABLE_HEADERS:
+                name = header[1:-1]
+                if name in tables:
+                    return None, "duplicate table %s" % header
+                tables[name] = {}
+                current = name
+                in_compat = True
+                continue
+            if header.startswith("[compat.") or header.startswith("[[compat"):
+                return None, "unsupported compat table %s" % header
+            current = None
+            in_compat = False
+            continue
+        if not in_compat:
+            key_part = stripped.split("=", 1)[0].strip()
+            if key_part.startswith("compat.") or key_part.startswith('"compat.'):
+                return None, "dotted compat assignment outside tables"
+            continue
+        if "=" not in stripped:
+            return None, "unparseable line in [%s]" % current
+        key, _sep, rest = stripped.partition("=")
+        key = key.strip()
+        rest = rest.strip()
+        if not _COMPAT_KEY_RE.fullmatch(key):
+            return None, "unsupported key %s in [%s]" % (key, current)
+        token = rest.split("#", 1)[0].strip()
+        if token not in _COMPAT_BOOLS:
+            return None, "unsupported value in [%s].%s" % (current, key)
+        if key in tables[current]:
+            return None, "duplicate key %s in [%s]" % (key, current)
+        tables[current][key] = _COMPAT_BOOLS[token]
+    return tables, None
+
+
+def expected_compat_values():
+    tables, error = parse_compat_table_values(COMPAT_BLOCK)
+    if error or tables is None:
+        raise KeysmithError("internal compat block is invalid: %s" % (error or "empty"))
+    return tables
+
+
+def compat_values_aligned(content):
+    actual, error = parse_compat_table_values(content)
+    if error or actual is None:
+        return False, error or "compat tables could not be parsed"
+    expected = expected_compat_values()
+    if set(actual) != set(expected):
+        return False, "compat tables do not match the required set"
+    for name, expected_keys in expected.items():
+        if actual[name] != expected_keys:
+            return False, "compat table [%s] is not an exact match" % name
+    return True, None
+
+
+def _compat_status_fields(present=False, matches_expected=False, values_aligned=False, repairable=False):
+    return {
+        "present": bool(present),
+        "matches_expected": bool(matches_expected),
+        "values_aligned": bool(values_aligned),
+        "repairable": bool(repairable),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1815,7 +2038,7 @@ def compute_status(paths):
         return {
             "state": STATE_CONFLICT,
             "nodes": {"grok_dir": {"kind": grok_kind, "path": str(paths.grok_dir)}},
-            "compat": {"present": False, "matches_expected": False},
+            "compat": _compat_status_fields(),
             "hooks": {"active": [], "disabled": [], "owned_disabled": [], "external_disabled": []},
             "manifest": None,
             "backups": [],
@@ -1849,6 +2072,9 @@ def compute_status(paths):
     has_compat = config_has_compat_block(config_text) if config_kind == "regular" else False
     expected_compat = compat_block_wrapped()
     matches_expected = has_compat and expected_compat.strip() in config_text
+    values_aligned = False
+    if config_kind == "regular":
+        values_aligned, _aligned_reason = compat_values_aligned(config_text)
 
     if rule["kind"] not in {"regular", "missing"}:
         conflicts.append("rule node is %s" % rule["kind"])
@@ -1903,6 +2129,31 @@ def compute_status(paths):
     elif rule["kind"] not in {"regular", "missing"}:
         state = STATE_CONFLICT
 
+    config_fp_drift = CONFIG_FINGERPRINT_DRIFT in drift
+    other_drift = [item for item in drift if item != CONFIG_FINGERPRINT_DRIFT]
+    schema2 = bool(
+        manifest
+        and not manifest.get("invalid")
+        and not manifest.get("legacy")
+        and manifest.get("schema_version") == MANIFEST_SCHEMA_VERSION
+        and ((manifest.get("layer") or {}).get("config") or {}).get("after") is not None
+    )
+    repairable = bool(
+        schema2
+        and not residue
+        and not conflicts
+        and not manifest_invalid
+        and config_kind == "regular"
+        and values_aligned
+        and not other_drift
+        and (config_fp_drift or not has_compat)
+    )
+    if repairable and config_fp_drift:
+        drift = [
+            CONFIG_REPAIRABLE_DRIFT if item == CONFIG_FINGERPRINT_DRIFT else item
+            for item in drift
+        ]
+
     exit_code = 0
     if state in {STATE_DRIFT, STATE_CONFLICT, STATE_RECOVERY}:
         exit_code = 1
@@ -1921,10 +2172,12 @@ def compute_status(paths):
                 "path": str(paths.hooks_dir),
             },
         },
-        "compat": {
-            "present": has_compat,
-            "matches_expected": matches_expected,
-        },
+        "compat": _compat_status_fields(
+            present=has_compat,
+            matches_expected=matches_expected,
+            values_aligned=values_aligned,
+            repairable=repairable,
+        ),
         "hooks": {
             "active": active,
             "disabled": disabled,
@@ -1965,6 +2218,11 @@ def human_status(status, paths):
         lines.append("  rules/%s: %s" % (RULES_MD_FILENAME, rule["kind"]))
     lines.append("  config.toml: %s" % status["nodes"]["config"]["kind"])
     lines.append("  compat isolation: %s" % ("present" if status["compat"]["present"] else "absent"))
+    if status["compat"].get("values_aligned"):
+        suffix = " (repairable)" if status["compat"].get("repairable") else ""
+        lines.append("  compat values: aligned%s" % suffix)
+    elif status["state"] not in {STATE_NOT_INSTALLED}:
+        lines.append("  compat values: not aligned")
     lines.append("  active hooks: %s" % len(status["hooks"]["active"]))
     lines.append("  disabled hooks: %s" % len(status["hooks"]["disabled"]))
     if status["manifest"]:
@@ -2970,6 +3228,199 @@ def execute_restore_hooks(paths, expected_preview_token=None):
         lock.release()
 
 
+def _reconcile_blockers(status):
+    blockers = []
+    if status.get("residue"):
+        blockers.append("interrupted transaction present; run --recover first")
+    if status.get("conflicts"):
+        blockers.extend(status["conflicts"])
+    if status["state"] == STATE_ACTIVE_ALIGNED or status["compat"].get("repairable"):
+        return blockers
+    if not status["compat"].get("values_aligned"):
+        blockers.append(COMPAT_VALUES_MISMATCH)
+    for item in status.get("drift") or []:
+        if item not in blockers:
+            blockers.append(item)
+    if not blockers:
+        blockers.append("config ownership cannot be reconciled")
+    return blockers
+
+
+def _manifest_v2_payload(manifest):
+    return {
+        "schema_version": manifest["schema_version"],
+        "tool": TOOL_NAME,
+        "version": manifest["version"],
+        "deployment_id": manifest["deployment_id"],
+        "created_at": manifest["created_at"],
+        "prompt_source": manifest["prompt_source"],
+        "prompt_name": manifest["prompt_name"],
+        "prompt_sha256": manifest["prompt_sha256"],
+        "layer": copy.deepcopy(manifest["layer"]),
+        "previous_layer": copy.deepcopy(manifest.get("previous_layer")),
+    }
+
+
+def build_reconcile_plan(paths):
+    status = compute_status(paths)
+    blockers = _reconcile_blockers(status)
+    config_kind = classify_node(paths.config)
+    config_exists = config_kind == "regular"
+    config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
+    new_config = config_text
+    stripped = []
+    will_change = False
+    if config_exists and status["state"] != STATE_ACTIVE_ALIGNED:
+        new_config, stripped = config_add_compat_block(config_text)
+        will_change = new_config != config_text
+    if status["state"] == STATE_ACTIVE_ALIGNED:
+        will_change = False
+        new_config = config_text
+    observed = {
+        "root_identity": (
+            dir_identity(paths.grok_dir)
+            if classify_node(paths.grok_dir) == "directory"
+            else None
+        ),
+        "config": fingerprint_path(paths.config),
+        "manifest": fingerprint_path(paths.manifest),
+    }
+    public = {
+        "will_write_markers": True,
+        "will_change": will_change,
+        "preserved_non_compat": True,
+        "stripped_external_compat": stripped,
+        "values_aligned": bool(status["compat"].get("values_aligned")),
+        "repairable": bool(status["compat"].get("repairable")),
+        "state": status["state"],
+        "blockers": blockers,
+        "manifest": None
+        if not status.get("manifest")
+        else {
+            "deployment_id": status["manifest"].get("deployment_id"),
+            "prompt_name": status["manifest"].get("prompt_name"),
+        },
+    }
+    public["confirmation_token"] = _confirmation_token(
+        "reconcile",
+        paths,
+        {
+            "observed": {
+                key: value for key, value in observed.items() if key != "root_identity"
+            },
+            "new_config_sha256": sha256_bytes(new_config.encode("utf-8")),
+            "will_change": will_change,
+            "blockers": blockers,
+            "state": status["state"],
+        },
+    )
+    return {
+        "public": public,
+        "status": status,
+        "new_content": new_config,
+        "will_change": will_change,
+        "observed": observed,
+        "blockers": blockers,
+    }
+
+
+def human_reconcile_plan(plan):
+    lines = ["=== reconcile plan ==="]
+    lines.append("  restore marked compat block: yes")
+    lines.append("  preserve non-compat keys: yes")
+    lines.append("  will change config: %s" % ("yes" if plan["will_change"] else "no"))
+    if plan["public"].get("stripped_external_compat"):
+        lines.append(
+            "  strip external compat: %s"
+            % ", ".join(plan["public"]["stripped_external_compat"])
+        )
+    if plan["blockers"]:
+        lines.append("  blockers:")
+        for item in plan["blockers"]:
+            lines.append("    - %s" % item)
+    else:
+        lines.append("[dry-run] no files written; add --yes to apply")
+    return lines
+
+
+def execute_reconcile(paths, expected_preview_token=None):
+    txid = new_txid()
+    lock = WriteLock(paths)
+    lock.acquire()
+    try:
+        assert_bound_root(paths)
+        plan = build_reconcile_plan(paths)
+        _require_expected_preview(expected_preview_token, plan["public"]["confirmation_token"])
+        if plan["blockers"]:
+            raise KeysmithError("reconcile fail closed", diagnostics=plan["blockers"])
+        if not plan["will_change"]:
+            return {
+                "changed": False,
+                "config": str(paths.config),
+                "manifest": str(paths.manifest),
+            }
+        manifest = load_manifest(paths)
+        if not manifest or manifest.get("invalid") or manifest.get("legacy"):
+            raise KeysmithError("reconcile requires a valid schema-2 manifest")
+        before_config = fingerprint_path(paths.config)
+        before_manifest = fingerprint_path(paths.manifest)
+        if before_config is None or before_manifest is None:
+            raise KeysmithError("reconcile requires an existing config and manifest")
+        config_mode = before_config["mode"]
+        manifest_mode = before_manifest["mode"]
+        new_content = plan["new_content"]
+        config_after = fingerprint_bytes(new_content.encode("utf-8"), mode=config_mode)
+        updated = _manifest_v2_payload(manifest)
+        updated["layer"]["config"]["after"] = config_after
+        updated["layer"]["config"]["compat_block"] = True
+        manifest_bytes = _json_bytes(updated)
+        manifest_after = fingerprint_bytes(manifest_bytes, mode=manifest_mode)
+        config_backup = unique_backup_path(paths.config, paths.grok_dir)
+        config_backup_rel = path_rel(paths, config_backup, "config backup")
+        jdir_rel = JOURNAL_DIR_PREFIX + txid
+        resources = [
+            _resource("config-backup", config_backup_rel, None, before_config),
+            _resource(
+                "config",
+                path_rel(paths, paths.config),
+                before_config,
+                config_after,
+                config_backup_rel,
+            ),
+            _resource(
+                "manifest",
+                path_rel(paths, paths.manifest),
+                before_manifest,
+                manifest_after,
+                "%s/snapshot-manifest" % jdir_rel,
+            ),
+        ]
+        jdir, journal = _create_transaction(paths, txid, "reconcile", resources)
+        _prepare_transaction_snapshots(paths, jdir, journal, txid)
+
+        _set_journal_phase(jdir, journal, "config-intent", txid)
+        config_resource = next(item for item in resources if item["name"] == "config")
+        _apply_resource_content(
+            paths, config_resource, new_content.encode("utf-8"), txid
+        )
+
+        _set_journal_phase(jdir, journal, "manifest-intent", txid)
+        manifest_resource = next(item for item in resources if item["name"] == "manifest")
+        _apply_resource_content(paths, manifest_resource, manifest_bytes, txid)
+
+        _set_journal_phase(jdir, journal, "committed", txid)
+        cleanup_journal(paths, jdir, journal)
+        return {
+            "changed": True,
+            "config": str(paths.config),
+            "manifest": str(paths.manifest),
+            "backup": str(config_backup),
+            "deployment_id": manifest.get("deployment_id"),
+        }
+    finally:
+        lock.release()
+
+
 # ---------------------------------------------------------------------------
 # Argparse / main
 # ---------------------------------------------------------------------------
@@ -2989,6 +3440,7 @@ def build_argparser():
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--restore-hooks", action="store_true", dest="restore_hooks")
     parser.add_argument("--recover", action="store_true")
+    parser.add_argument("--reconcile", action="store_true")
     parser.add_argument("--expected-preview-token", dest="expected_preview_token")
     parser.add_argument("--file", metavar="PATH")
     parser.add_argument("--name", metavar="NAME")
@@ -3042,6 +3494,8 @@ def _operation_for_args(args):
         return "recover"
     if getattr(args, "restore_hooks", False):
         return "restore_hooks"
+    if getattr(args, "reconcile", False):
+        return "reconcile"
     if getattr(args, "version", False):
         return "version"
     return "deploy"
@@ -3079,6 +3533,8 @@ def _operation_for_argv(argv):
         return "recover"
     if "--restore-hooks" in visible:
         return "restore_hooks"
+    if "--reconcile" in visible:
+        return "reconcile"
     if "--version" in visible:
         return "version"
     return "deploy"
@@ -3095,6 +3551,7 @@ def _validate_modes(args):
             args.uninstall,
             args.restore_hooks,
             args.recover,
+            args.reconcile,
             args.expected_preview_token,
             args.file,
             args.name,
@@ -3104,10 +3561,16 @@ def _validate_modes(args):
             "%s cannot be combined with lifecycle or deploy modes" % args.command,
             exit_code=2,
         )
-    ops = [bool(args.status), bool(args.uninstall), bool(args.restore_hooks), bool(args.recover)]
+    ops = [
+        bool(args.status),
+        bool(args.uninstall),
+        bool(args.restore_hooks),
+        bool(args.recover),
+        bool(args.reconcile),
+    ]
     if sum(ops) > 1:
         raise KeysmithError(
-            "status, uninstall, restore-hooks, and recover are mutually exclusive",
+            "status, uninstall, restore-hooks, recover, and reconcile are mutually exclusive",
             exit_code=2,
         )
     if args.dry_run and args.yes:
@@ -3124,7 +3587,9 @@ def _validate_modes(args):
         args.yes or args.dry_run or args.expected_preview_token or args.file or args.name
     ):
         raise KeysmithError("--status is read-only", exit_code=2)
-    if args.file and (args.uninstall or args.restore_hooks or args.recover or args.status):
+    if args.file and (
+        args.uninstall or args.restore_hooks or args.recover or args.reconcile or args.status
+    ):
         raise KeysmithError("--file is only valid for deploy", exit_code=2)
     if args.version and any(
         (
@@ -3134,6 +3599,7 @@ def _validate_modes(args):
             args.uninstall,
             args.restore_hooks,
             args.recover,
+            args.reconcile,
             args.expected_preview_token,
             args.file,
             args.name,
@@ -3321,6 +3787,40 @@ def main(argv=None):
                 0,
                 as_json,
                 ["hooks restored"],
+            )
+        if args.reconcile:
+            preview = not args.yes
+            plan = build_reconcile_plan(paths)
+            public_plan = plan["public"]
+            if preview:
+                if plan["blockers"]:
+                    raise KeysmithError("reconcile fail closed", diagnostics=plan["blockers"])
+                return emit_envelope(
+                    "reconcile",
+                    True,
+                    False,
+                    True,
+                    paths.as_target(),
+                    public_plan,
+                    None,
+                    [],
+                    0,
+                    as_json,
+                    human_reconcile_plan(plan),
+                )
+            result = execute_reconcile(paths, args.expected_preview_token)
+            return emit_envelope(
+                "reconcile",
+                False,
+                True,
+                True,
+                paths.as_target(),
+                public_plan,
+                result,
+                [],
+                0,
+                as_json,
+                ["config markers restored" if result.get("changed") else "config already aligned"],
             )
         if args.uninstall:
             preview = not args.yes

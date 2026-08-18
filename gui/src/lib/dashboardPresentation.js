@@ -16,6 +16,7 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
   const configKind = nodes.config?.kind || "missing";
   const configNodeOk = ["regular", "missing"].includes(configKind);
   const compat = result.compat || {};
+  const repairable = compat.repairable === true && residue.length === 0;
   const issues = [...drift, ...conflicts];
   const ruleIssues = issues.filter((item) => /\brule\b/i.test(String(item)));
   const hookIssues = issues.filter((item) => /hook/i.test(String(item)));
@@ -25,6 +26,7 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
 
   const primaryAction = (() => {
     if (state === "recovery-required") return { key: "recover", view: "manage" };
+    if (repairable) return { key: "reconcile", view: "manage" };
     if (state === "drift" || state === "conflict") return { key: "issues", view: "manage" };
     if (state === "not-installed") return { key: "deploy", view: "deploy" };
     return null;
@@ -44,9 +46,11 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
         && compat.present === true && compat.matches_expected === true,
       detail: configIssues.length > 0
         ? translateRawList(configIssues, t).join("；")
-        : (!configNodeOk || compat.present !== true || compat.matches_expected !== true
-          ? t("dash.configInactive")
-          : ""),
+        : (repairable
+          ? t("dash.configRepairable")
+          : (!configNodeOk || compat.present !== true || compat.matches_expected !== true
+            ? t("dash.configInactive")
+            : "")),
     },
     {
       key: "hooks",
@@ -66,6 +70,7 @@ export function presentDashboard({ state, grokDir = "", result = {} }, t) {
 
   return {
     state,
+    summaryKey: repairable ? "repairable" : state,
     grokDir,
     primaryAction,
     health,

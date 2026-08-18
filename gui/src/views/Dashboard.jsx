@@ -29,6 +29,7 @@ const STATE_VARIANT = {
 
 const ACTION_META = {
   recover: { labelKey: "dash.recoverAction", variant: "warning", Icon: Wrench },
+  reconcile: { labelKey: "dash.reconcileAction", variant: "default", Icon: Wrench },
   issues: { labelKey: "dash.inspectIssues", variant: "outline", Icon: Eye },
   deploy: { labelKey: "dash.startDeploy", variant: "default", Icon: Rocket },
 };
@@ -212,7 +213,7 @@ export function Dashboard() {
                 </Button>
               )}
             </div>
-            <p className="mt-3 text-sm">{t(`dash.summary.${model.state}`)}</p>
+            <p className="mt-3 text-sm">{t(`dash.summary.${model.summaryKey || model.state}`)}</p>
             {model.grokDir ? (
               <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="shrink-0">{t("dash.grokDir")}</span>

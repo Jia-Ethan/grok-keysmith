@@ -49,6 +49,7 @@
     "errorHint": "The current status could not be read. Check the CLI and retry.",
     "nodeIssue": "A managed file has an invalid state",
     "configInactive": "The Grok configuration is not active",
+    "configRepairable": "Compat values still match; only markers or the file fingerprint drifted",
     "health": "Health",
     "rule": "Rule",
     "grokConfig": "Grok config",
@@ -59,6 +60,7 @@
     "grokDir": "Grok directory",
     "backupsCount": "{{count}} backups",
     "recoverAction": "Recover interrupted operation",
+    "reconcileAction": "Restore config markers",
     "inspectIssues": "View issues",
     "startDeploy": "Start deploy",
     "summary": {
@@ -66,6 +68,7 @@
       "inactive": "The rule is written but not currently active.",
       "not-installed": "Not deployed yet; the rule takes effect after deployment.",
       "drift": "Grok configuration has changed from the expected state.",
+      "repairable": "Compat isolation values still match; restore the markers to continue uninstall or deploy.",
       "conflict": "Conflicting content detected; resolve it before continuing.",
       "recovery-required": "An interrupted operation needs recovery."
     }
@@ -199,6 +202,8 @@
     "recover": "Recover",
     "recoverDesc": "Clean up residue left by an interrupted operation",
     "recoverAvailable": "Transaction residue detected; recovery recommended",
+    "reconcileDesc": "Rewrite markers and the managed fingerprint when compat values still match",
+    "reconcileAvailable": "Config markers can be restored safely",
     "issues": "Issues requiring attention",
     "previewAction": "Preview",
     "previewRequired": "Preview first, then confirm to execute",
@@ -206,6 +211,7 @@
     "backupsSummary": "{{count}} backups",
     "latestBackup": "Latest: {{name}}",
     "backupList": "Full backup list",
+    "planReconcile": "Will restore the marked compat block and leave other settings untouched",
     "planUninstall": "Will remove the managed rule and config, restoring the pre-deploy state",
     "planRestoreHooks": "Will re-enable hooks disabled by this tool",
     "planCleanResidue": "Will clean up {{count}} interrupted transaction journals",
@@ -223,6 +229,7 @@
     "verifyStatus": "Status verification failed: {{state}}",
     "complete": "{{operation}} complete",
     "operation": {
+      "reconcile": "Restore config markers",
       "uninstall": "Layered uninstall",
       "restore": "Restore owned hooks",
       "recover": "Recover"
@@ -255,6 +262,7 @@
     "python": "Python"
   },
   "raw": {
+    "configRepairable": "Compat values still match; markers or the file fingerprint drifted",
     "configChanged": "Grok configuration has changed",
     "unexpectedContent": "Unexpected content detected",
     "residue": "Interrupted operation residue present",
