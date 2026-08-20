@@ -67,8 +67,8 @@ const preview = spawn(
 );
 
 const BASE_URL = "http://127.0.0.1:4173/";
-const SHA = "99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09";
-const LONG_CLI_VERSION = `grok-keysmith 0.4.1 bundled prompt SHA-256: ${SHA}`;
+const SHA = "024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2";
+const LONG_CLI_VERSION = `grok-keysmith 0.5.0 bundled prompt SHA-256: ${SHA}`;
 const LONG_GROK_DIR = "/tmp/fixture/users/someone-with-a-very-long-home-directory-name/Library/Application Support/Grok/.grok";
 const failures = [];
 const evidence = [];
@@ -97,7 +97,7 @@ function statusEnvelope({
       state,
       nodes: {
         rule: installed
-          ? { kind: "regular", fingerprint: { sha256: SHA, size: 10101 } }
+          ? { kind: "regular", fingerprint: { sha256: SHA, size: 10627 } }
           : { kind: "missing", fingerprint: null },
         config: { kind: installed ? "regular" : "missing" },
         manifest: { kind: installed ? "regular" : "missing" },

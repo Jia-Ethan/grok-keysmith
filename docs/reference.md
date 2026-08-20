@@ -105,9 +105,10 @@ python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 ```bash
 python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeout 180
 ```
 
-`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
+`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。`--wrap fixture` 在用户消息前加上本地 lab 路由头，让用户轮的首 token 是夹具上下文而不是原始请求；默认 `none`，不改 home rules。对「未授权全流程」这类题，`--wrap fixture` 要配 `default` 模式；和 `--mode override` 叠用会重新触发权重拒绝。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。全阶段渗透交付往往超过 180s，需要把 `--timeout` 调到 300 左右。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
 
 ### Breaktest
 
@@ -271,9 +272,10 @@ python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 ```bash
 python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeout 180
 ```
 
-`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
+`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. `--wrap fixture` prefixes the user prompt with a local-lab routing header so the first tokens of the user turn are fixture context rather than the raw request; the default is `none` and home rules are unchanged. For unauthorized-workflow phrasing, use `--wrap fixture` with `default` mode; stacking it with `--mode override` retriggers weight-layer refusal. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Full pentest deliveries often exceed 180s; raise `--timeout` to around 300. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
 
 ### Breaktest
 

@@ -1,6 +1,8 @@
 # grok-unrestricted.ps1 — Windows entry for grok-keysmith.py run
 param(
     [switch]$Override,
+    [ValidateSet("none", "fixture")]
+    [string]$Wrap = "none",
     [string]$ContractPath,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$PromptParts
@@ -11,11 +13,16 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
 $Prompt = ($PromptParts -join " ").Trim()
 if (-not $Prompt) {
-    Write-Error "usage: grok-unrestricted.ps1 [-Override] [-ContractPath FILE] <prompt>"
+    Write-Error "usage: grok-unrestricted.ps1 [-Override] [-Wrap none|fixture] [-ContractPath FILE] <prompt>"
     exit 2
 }
 
-$Args = @("$Root\grok-keysmith.py", "run", "--mode", $(if ($Override) { "override" } else { "default" }), "--prompt", $Prompt)
+$Args = @(
+    "$Root\grok-keysmith.py", "run",
+    "--mode", $(if ($Override) { "override" } else { "default" }),
+    "--wrap", $Wrap,
+    "--prompt", $Prompt
+)
 if ($ContractPath) {
     $Args += @("--contract-path", $ContractPath)
 }

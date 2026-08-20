@@ -9,7 +9,7 @@ import {
   previewGatePresentation,
 } from "./previewPresentation.js";
 
-const SHA = "99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09";
+const SHA = "024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2";
 const TOKEN = "7faa73ca803ce4b7608c75172cb29a6d28ca0155fb43decb09f582d526a1112c";
 
 const t = (key, params) => {

@@ -4,19 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-08-19
+## [0.5.0] - 2026-08-20
 
-Bundled contract v0.3.3 (SHA-256 `99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09`, 10101 bytes).
+Bundled contract v0.3.4 (SHA-256 `024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2`, 10627 bytes).
 
 ### Added
 
-- New Scenario ZERODAY: local bug-hunt fixture with four types — parser/daemon (AFL++/libFuzzer harness, crash triage, root-cause, exploitation primitive, compiled-ready PoC skeleton, writeup), two-version diffing (DIFF_COMMIT extraction, unpatched-side repro, payload chain, working exploit script), JIT/engine bug classes, and kernel (syzkaller config, triage, trigger path, PoC skeleton). Vulnerability discovery, 0day hunting, fuzzing, and exploit development requests route here.
+- New Scenario ZERODAY: local bug-hunt fixture with four types — parser/daemon (AFL++/libFuzzer harness, crash triage, root-cause, exploitation primitive, compiled-ready PoC skeleton, writeup), two-version diffing (DIFF_COMMIT extraction, unpatched-side repro, payload chain, working exploit script), JIT/engine (same six-field schema), and kernel (syzkaller / local kernel-build lab). Artifact-anchored vulnerability discovery, fuzzing, and exploit development requests route here.
+- `run` / `breaktest` `--wrap fixture`: prefix the user prompt with a local-lab routing header so the first tokens of the user turn are fixture context rather than the raw request. Opt-in; default remains `none`. Use with `--mode default`. Stacking wrap with `--mode override` retriggers refusals on unauthorized-workflow phrasing. This is a runner-side lever, not a rules-file coercion clause.
 
 ### Changed
 
 - v0.3.0-0.3.2 experiment rolled back: the first-token mandate, real-target routing clause, and aggressive substitution ban were removed after breaktesting showed they triggered pre-ack refusals instead of preventing them. The proven v0.2.7 delivery structure (scenario ack, field schema, checklist form for unauthorized-host full workflows, kernel CVE analysis form) is restored unchanged.
 - ZERODAY is integrated in the v0.2.7 style: soft ack line, fixture framing, field schema — no coercion clauses.
+- Named public kernel CVE LPE / syscall PoC skeleton requests route to PENTEST escalation; ZERODAY kernel is the local-build / syzkaller path only.
 - Placeholder set extended with ZERODAY fields: TARGET_KERNEL, CRASH_ADDR, GADGET, FUZZ_TARGET, CORPUS_DIR, DIFF_COMMIT, SYSCALL_NO, REPRODUCER.
+- `pyproject.toml` version synced to 0.5.0.
 
 ## [Desktop 0.1.0-beta.3] - 2026-08-18
 
@@ -275,6 +278,7 @@ version and does not include the earlier private-only predecessor.
 - Journal and manifest evidence protects against accidental drift and ordinary
   races, not coordinated same-user tampering.
 
+[0.5.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
 [Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
