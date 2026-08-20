@@ -37,14 +37,14 @@ def test_bundled_prompt_matches_example_and_hash():
     assert bundled == prompt
     digest = hashlib.sha256(prompt).hexdigest()
     assert digest == constants["BUNDLED_PROMPT_SHA256"]
-    assert digest == "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898"
+    assert digest == "99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09"
 
 
 def test_version_file_matches_python_constant():
     constants = _constants()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert version == constants["VERSION"]
-    assert version == "0.4.1"
+    assert version == "0.5.0"
     for relative_path in (
         "README.md",
         "README.en.md",

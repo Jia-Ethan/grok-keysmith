@@ -52,8 +52,8 @@ const FIXTURE_ENVELOPE = {
       rule: {
         kind: "regular",
         fingerprint: {
-          sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898",
-          size: 8391,
+          sha256: "99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09",
+          size: 10101,
         },
       },
       config: { kind: "regular" },
@@ -63,7 +63,7 @@ const FIXTURE_ENVELOPE = {
     hooks: { active: [], disabled: [], owned_disabled: [], external_disabled: [] },
     manifest: {
       deployment_id: "fixture-deployment-0001",
-      prompt_sha256: "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898",
+      prompt_sha256: "99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09",
     },
     backups: FIXTURE_BACKUPS,
     residue: [],

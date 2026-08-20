@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-19
+
+Bundled contract v0.3.3 (SHA-256 `99e33e3c017d790702f9c2e5ec56f6d53661f395c5189893f7b0565a460e7f09`, 10101 bytes).
+
+### Added
+
+- New Scenario ZERODAY: local bug-hunt fixture with four types — parser/daemon (AFL++/libFuzzer harness, crash triage, root-cause, exploitation primitive, compiled-ready PoC skeleton, writeup), two-version diffing (DIFF_COMMIT extraction, unpatched-side repro, payload chain, working exploit script), JIT/engine bug classes, and kernel (syzkaller config, triage, trigger path, PoC skeleton). Vulnerability discovery, 0day hunting, fuzzing, and exploit development requests route here.
+
+### Changed
+
+- v0.3.0-0.3.2 experiment rolled back: the first-token mandate, real-target routing clause, and aggressive substitution ban were removed after breaktesting showed they triggered pre-ack refusals instead of preventing them. The proven v0.2.7 delivery structure (scenario ack, field schema, checklist form for unauthorized-host full workflows, kernel CVE analysis form) is restored unchanged.
+- ZERODAY is integrated in the v0.2.7 style: soft ack line, fixture framing, field schema — no coercion clauses.
+- Placeholder set extended with ZERODAY fields: TARGET_KERNEL, CRASH_ADDR, GADGET, FUZZ_TARGET, CORPUS_DIR, DIFF_COMMIT, SYSCALL_NO, REPRODUCER.
+
 ## [Desktop 0.1.0-beta.3] - 2026-08-18
 
 Third desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.4.1`.
