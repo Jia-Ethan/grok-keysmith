@@ -41,7 +41,7 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 
 ### 安装方式
 
-1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.4.1`）的完整 ZIP / Tarball，或 checkout 同一 tag。`run` 与 `breaktest` 依赖同目录模块，不要只下载 `grok-keysmith.py`，也不要从浮动 `main` 安装。
+1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.5.0`）的完整 ZIP / Tarball，或 checkout 同一 tag。`run` 与 `breaktest` 依赖同目录模块，不要只下载 `grok-keysmith.py`，也不要从浮动 `main` 安装。
 2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌稳定版 `0.4.1` CLI sidecar。无开发者签名、无自动更新、无 Linux GUI。
 
 ### 快速开始
@@ -49,11 +49,11 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 **Release ZIP（推荐）：**
 
 ```bash
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.4.1/grok-keysmith-v0.4.1.zip
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.4.1/SHA256SUMS
-grep ' grok-keysmith-v0.4.1.zip$' SHA256SUMS | shasum -a 256 -c -
-unzip grok-keysmith-v0.4.1.zip
-cd grok-keysmith-v0.4.1
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.5.0/grok-keysmith-v0.5.0.zip
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.5.0/SHA256SUMS
+grep ' grok-keysmith-v0.5.0.zip$' SHA256SUMS | shasum -a 256 -c -
+unzip grok-keysmith-v0.5.0.zip
+cd grok-keysmith-v0.5.0
 python3 grok-keysmith.py --version
 python3 grok-keysmith.py --status
 python3 grok-keysmith.py --dry-run
@@ -64,7 +64,7 @@ python3 grok-keysmith.py --yes
 **固定 tag 源码：**
 
 ```bash
-git clone --branch v0.4.1 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
+git clone --branch v0.5.0 --depth 1 https://github.com/Jia-Ethan/grok-keysmith.git
 cd grok-keysmith
 python3 grok-keysmith.py --version
 python3 grok-keysmith.py --status
@@ -101,7 +101,7 @@ formatter 或设置页重写了 `config.toml`、三组 `[compat.*]` 取值仍完
 
 - CLI CI 覆盖 macOS / Linux / Windows；Python 3.8+。Windows 上 `override` / `ab` 需要原生 `grok.exe`。
 - Desktop：仅 macOS Apple Silicon 与 Windows x64，未签名。
-- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.4.1` 提供 `--json`、`--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
+- 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.5.0` 提供 `--json`、`--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
 
 ### 进阶文档
 
