@@ -111,7 +111,7 @@ formatter 或设置页重写了 `config.toml`、三组 `[compat.*]` 取值仍完
 
 ### 贡献、安全与系列
 
-漏洞走 [`SECURITY.md`](SECURITY.md)。社区：[LINUX DO](https://linux.do)。
+漏洞走 [`SECURITY.md`](SECURITY.md)。官方反馈：[GitHub Discussions](https://github.com/Jia-Ethan/grok-keysmith/discussions/15)；社区交流：[LINUX DO](https://linux.do)。
 
 - [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) — Codex 全局指令
 - [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) — Claude Code 可卸载 import block

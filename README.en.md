@@ -111,7 +111,7 @@ If a formatter or settings UI rewrote `config.toml` but the three `[compat.*]` t
 
 ### Contributing, security, and the series
 
-Report vulnerabilities through [`SECURITY.md`](SECURITY.md). Community: [LINUX DO](https://linux.do).
+Report vulnerabilities through [`SECURITY.md`](SECURITY.md). Official feedback: [GitHub Discussions](https://github.com/Jia-Ethan/grok-keysmith/discussions/15). Community: [LINUX DO](https://linux.do).
 
 - [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) — global Codex instructions
 - [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) — uninstallable Claude Code import blocks
