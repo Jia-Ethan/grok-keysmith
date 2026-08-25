@@ -110,6 +110,17 @@ python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeou
 
 `default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。`--wrap fixture` 在用户消息前加上本地 lab 路由头，让用户轮的首 token 是夹具上下文而不是原始请求；默认 `none`，不改 home rules。对「未授权全流程」这类题，`--wrap fixture` 要配 `default` 模式；和 `--mode override` 叠用会重新触发权重拒绝。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。全阶段渗透交付往往超过 180s，需要把 `--timeout` 调到 300 左右。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
 
+### Session Script
+
+```bash
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --timeout 320 --save-output-dir /absolute/run-dir
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --session-retries 2 --reasoning-effort medium
+```
+
+`--session-script DIR` 把目录里的 `turn1.txt`..`turnN.txt` 按顺序送进同一个多轮 Grok 会话：turn 1 新开会话，后续 turn 自动 resume。每个 turn 一个字段请求（六字段 ZERODAY 结构：hunt → triage → root_cause → exploit → poc → writeup），会话惯性让后续 turn 复用前面自己交付的上下文。三轮流式稳定性验证里 18/18 turn 零拒绝，同样素材单 turn 只有 1/3 通过率。
+
+实现细节：turn 输出用启发式分类器标注 `refused` / 字段覆盖 / `rop_chain` / `poc_code`，聚合成 JSON envelope 的 `aggregate_fields` 和 `abort_reason`；turn 拒绝或超时耗尽重试就中止会话。`--session-retries`（默认 1）只对生成延迟超时重试——超时不是拒绝。turn 默认带 `--disable-web-search` 且 `--reasoning-effort medium`：全局 `xhigh` 会让六轮序列超出实际 turn 超时，web search 会在首 token 前卷入长工具循环。`--save-output-dir DIR` 把每轮输出落盘为 `DIR/turnN.out.txt`。
+
 ### Breaktest
 
 ```bash
@@ -276,6 +287,17 @@ python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeou
 ```
 
 `default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. `--wrap fixture` prefixes the user prompt with a local-lab routing header so the first tokens of the user turn are fixture context rather than the raw request; the default is `none` and home rules are unchanged. For unauthorized-workflow phrasing, use `--wrap fixture` with `default` mode; stacking it with `--mode override` retriggers weight-layer refusal. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Full pentest deliveries often exceed 180s; raise `--timeout` to around 300. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
+
+### Session Script
+
+```bash
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --timeout 320 --save-output-dir /absolute/run-dir
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --session-retries 2 --reasoning-effort medium
+```
+
+`--session-script DIR` feeds `turn1.txt`..`turnN.txt` from a directory into a single multi-turn Grok session: turn 1 starts fresh, later turns auto-resume the same session. Each turn requests one field (the six-field ZERODAY structure: hunt → triage → root_cause → exploit → poc → writeup); session momentum lets each turn build on context Grok itself delivered earlier. Three stability runs measured 18/18 turns delivered with zero refusals on material that single-turn prompts delivered only 1/3 of the time.
+
+Implementation notes: a heuristic classifier tags each turn output with `refused` / field coverage / `rop_chain` / `poc_code` and aggregates them into the JSON envelope's `aggregate_fields` and `abort_reason`; the session aborts on a refused turn or exhausted timeouts. `--session-retries` (default 1) retries only generation-latency timeouts — a timeout is not a refusal. Turns run with `--disable-web-search` and default to `--reasoning-effort medium`: a global `xhigh` effort makes six-turn sequences exceed practical turn timeouts, and web search can spiral into long tool loops before the first token. `--save-output-dir DIR` persists each turn to `DIR/turnN.out.txt`.
 
 ### Breaktest
 

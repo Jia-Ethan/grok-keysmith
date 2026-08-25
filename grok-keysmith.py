@@ -3494,6 +3494,26 @@ def build_argparser():
     run_p.add_argument("--output-format", dest="output_format", default="plain")
     run_p.add_argument("--prompt")
     run_p.add_argument("--prompt-file", dest="prompt_file")
+    run_p.add_argument(
+        "--session-script",
+        dest="session_script",
+        metavar="DIR",
+        help="run turn1.txt..turnN.txt as one multi-turn Grok session (auto-resume)",
+    )
+    run_p.add_argument(
+        "--session-retries",
+        dest="session_retries",
+        type=int,
+        default=1,
+        metavar="N",
+        help="per-turn timeout retries for --session-script (default 1)",
+    )
+    run_p.add_argument(
+        "--save-output-dir",
+        dest="save_output_dir",
+        metavar="DIR",
+        help="write each session-script turn output to DIR/turnN.out.txt",
+    )
     run_p.add_argument("--save-output", dest="save_output")
     run_p.add_argument("--max-output-bytes", dest="max_output_bytes", type=int, default=2 * 1024 * 1024)
     bt = sub.add_parser("breaktest", help="Run the productized prompt-bank harness")

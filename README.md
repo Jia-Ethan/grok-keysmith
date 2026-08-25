@@ -102,6 +102,7 @@ formatter 或设置页重写了 `config.toml`、三组 `[compat.*]` 取值仍完
 - CLI CI 覆盖 macOS / Linux / Windows；Python 3.8+。Windows 上 `override` / `ab` 需要原生 `grok.exe`。
 - Desktop：仅 macOS Apple Silicon 与 Windows x64，未签名。
 - 版本、资产和签名以 [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases) 为准。`v0.5.0` 提供 `--json`、`--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
+- 开发版新增 `run --session-script DIR`：把 `turn1.txt`..`turnN.txt` 按字段顺序送进同一个多轮 Grok 会话（六字段 ZERODAY 结构），详见 [`docs/reference.md`](docs/reference.md) 的 Session Script 一节。
 
 ### 进阶文档
 

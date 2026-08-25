@@ -102,6 +102,7 @@ If a formatter or settings UI rewrote `config.toml` but the three `[compat.*]` t
 - CLI CI covers macOS / Linux / Windows; Python 3.8+. Windows `override` / `ab` need a native `grok.exe`.
 - Desktop: macOS Apple Silicon and Windows x64 only; unsigned.
 - Versions and assets live on [Releases](https://github.com/Jia-Ethan/grok-keysmith/releases). `v0.5.0` provides `--json`, `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
+- Development adds `run --session-script DIR`: feeds `turn1.txt`..`turnN.txt` into one multi-turn Grok session in field order (the six-field ZERODAY structure); see the Session Script section in [`docs/reference.md`](docs/reference.md).
 
 ### Advanced docs
 

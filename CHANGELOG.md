@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `run --session-script DIR`: drive a directory of `turn1.txt`..`turnN.txt` through a single multi-turn Grok session (first turn starts fresh, later turns auto-resume the same session). Designed for the six-field ZERODAY delivery: turn-per-field sequencing measured 18/18 turns delivered with zero refusals across three stability runs on kernel LPE material that single-turn prompts only delivered 1/3 of the time. Per-turn heuristic classifier reports `refused`, field coverage, `rop_chain`, and `poc_code`; aggregate fields and abort reason are included in the JSON envelope.
+- `run --session-retries N` (default 1): per-turn retry on generation-latency timeouts, which are not refusals.
+- `run --save-output-dir DIR`: persist each session-script turn output to `DIR/turnN.out.txt`.
+- Session-script turns run with `--disable-web-search` and default to `--reasoning-effort medium`; a high global effort makes six-turn sequences exceed practical turn timeouts, and web search can spiral into long tool loops before the first token.
+
 ## [0.5.0] - 2026-08-20
 
 Bundled contract v0.3.4 (SHA-256 `024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2`, 10627 bytes).
