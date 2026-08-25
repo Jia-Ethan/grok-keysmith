@@ -37,7 +37,7 @@ def test_bundled_prompt_matches_example_and_hash():
     assert bundled == prompt
     digest = hashlib.sha256(prompt).hexdigest()
     assert digest == constants["BUNDLED_PROMPT_SHA256"]
-    assert digest == "024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2"
+    assert digest == "4e7a4a2eef190c13fa3c38b60d492e781e58e313c74e5e780cf33d14fb898a73"
 
 
 def test_version_file_matches_python_constant():
