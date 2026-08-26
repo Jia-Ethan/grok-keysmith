@@ -58,10 +58,15 @@ SESSION_SCRIPT_REFUSAL_TOKENS = (
     "i cannot",
     "i will not",
     "i must decline",
+    "i won't help",
+    "won't help",
     "我不会",
     "我无法",
+    "不会帮你",
+    "不会提供",
     "不能帮助",
     "无法提供",
+    "不会给",
     "越狱",
     "jailbreak",
 )
@@ -480,12 +485,19 @@ def _session_script_scenario(turn_texts):
 
 
 def _session_script_build_command(
-    binary, prompt_file, resume, model, effort, output_format, disable_web_search
+    binary,
+    prompt_file,
+    resume,
+    model,
+    effort,
+    output_format,
+    disable_web_search,
+    override_contract=None,
 ):
     command = [
         binary,
-        "-p",
-        Path(prompt_file).read_text(encoding="utf-8"),
+        "--prompt-file",
+        prompt_file,
         "--output-format",
         output_format or "plain",
         "--no-alt-screen",
@@ -498,6 +510,9 @@ def _session_script_build_command(
         command.extend(["--model", model])
     if effort:
         command.extend(["--reasoning-effort", effort])
+    if override_contract:
+        command.extend(["--system-prompt-override", override_contract])
+    validate_command(command)
     return command
 
 
@@ -512,9 +527,17 @@ def _session_script_run_turn(
     timeout,
     max_bytes,
     cwd,
+    override_contract=None,
 ):
     command = _session_script_build_command(
-        binary, prompt_file, resume, model, effort, output_format, disable_web_search
+        binary,
+        prompt_file,
+        resume,
+        model,
+        effort,
+        output_format,
+        disable_web_search,
+        override_contract=override_contract,
     )
     return run_stream(command, timeout, max_bytes, cwd=cwd)
 
@@ -545,6 +568,11 @@ def _session_script_main(args):
         model = getattr(args, "model", None)
         output_format = getattr(args, "output_format", "plain") or "plain"
         disable_web = bool(getattr(args, "disable_web_search", True))
+        wrap = getattr(args, "wrap", "none") or "none"
+        override_contract = None
+        if getattr(args, "mode", "default") == "override":
+            contract, _ = resolve_contract(getattr(args, "contract_path", None), None)
+            override_contract = Path(contract).read_text(encoding="utf-8")
         save_dir = getattr(args, "save_output_dir", None)
         if save_dir:
             save_path = Path(save_dir).expanduser()
@@ -556,6 +584,7 @@ def _session_script_main(args):
         abort_reason = None
         for index, turn_file in enumerate(turn_files):
             prompt_text = turn_file.read_text(encoding="utf-8")
+            prompt_text = wrap_prompt(prompt_text, wrap)
             handle = tempfile.NamedTemporaryFile(
                 prefix="grok-keysmith-turn-",
                 suffix=".txt",
@@ -583,6 +612,7 @@ def _session_script_main(args):
                     timeout,
                     max_bytes,
                     getattr(args, "cwd", None),
+                    override_contract=override_contract,
                 )
                 if not result["timed_out"] and not result["cancelled"]:
                     break
