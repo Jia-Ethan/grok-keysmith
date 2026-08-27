@@ -4,13 +4,13 @@
 import { describe, expect, it } from "vitest";
 import { presentDashboard } from "./dashboardPresentation.js";
 
-const SHA = "d693411fd79f57c5e805e7bcbb27b42bacdd11e6a6af8858ab998017196dc898";
+const SHA = "024e0a217cd8dab39e8109160dc8890f196d9a4584fb092928a87c553b3174b2";
 
 function makeResult(overrides = {}) {
   return {
     state: "active-aligned",
     nodes: {
-      rule: { kind: "regular", fingerprint: { sha256: SHA, size: 8391 } },
+      rule: { kind: "regular", fingerprint: { sha256: SHA, size: 10627 } },
       config: { kind: "regular" },
       manifest: { kind: "regular" },
     },

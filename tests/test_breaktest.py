@@ -442,6 +442,68 @@ def test_breaktest_resume_rejects_identity_drift_and_existing_artifacts(isolated
     assert any("identity mismatch" in item for item in drifted["diagnostics"])
 
 
+def test_breaktest_wrap_changes_identity_and_prompt(isolated_home):
+    home, grok_dir = isolated_home
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    fake = _fake_bin(home)
+    bank = _bank(home)
+    out = Path(home) / "bt-wrap"
+    first = parse_envelope(
+        run_cli(
+            ["breaktest", "--bank", bank, "--output-dir", out, "--grok-bin", fake],
+            grok_dir,
+            home=home,
+        )
+    )
+    assert first["ok"] is True
+    manifest = json.loads((out / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["identity"]["wrap"] == "none"
+    drifted = parse_envelope(
+        run_cli(
+            [
+                "breaktest",
+                "--bank",
+                bank,
+                "--output-dir",
+                out,
+                "--grok-bin",
+                fake,
+                "--wrap",
+                "fixture",
+                "--resume",
+            ],
+            grok_dir,
+            home=home,
+        )
+    )
+    assert drifted["ok"] is False
+    assert any("identity mismatch" in item for item in drifted["diagnostics"])
+    wrapped_dir = Path(home) / "bt-wrap-on"
+    wrapped = parse_envelope(
+        run_cli(
+            [
+                "breaktest",
+                "--bank",
+                bank,
+                "--output-dir",
+                wrapped_dir,
+                "--grok-bin",
+                fake,
+                "--wrap",
+                "fixture",
+            ],
+            grok_dir,
+            home=home,
+        )
+    )
+    assert wrapped["ok"] is True
+    wrap_manifest = json.loads((wrapped_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    assert wrap_manifest["identity"]["wrap"] == "fixture"
+    row = json.loads((wrapped_dir / "results.ndjson").read_text(encoding="utf-8").splitlines()[0])
+    wrap_chars = int(row["stdout"].split("prompt_chars=")[1].split()[0])
+    assert wrap_chars > len("Return a local fixture sample for TARGET.")
+
+
 def test_breaktest_lock_and_cooperative_cancel(isolated_home):
     home, grok_dir = isolated_home
     assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True

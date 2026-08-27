@@ -26,6 +26,7 @@ from grok_keysmith_runner import (
     run_stream,
     which_grok,
     build_command,
+    wrap_prompt,
     _version,
 )
 
@@ -46,6 +47,7 @@ REDIRECT_PATTERNS = re.compile(
 BUILTIN_BANKS = {
     "prompts.txt": "prompts.txt",
     "prompts-46.txt": "prompts-46.txt",
+    "prompts-v033.txt": "prompts-v033.txt",
     "builtin": "prompts.txt",
 }
 MAX_CONCURRENCY = 4
@@ -263,11 +265,11 @@ def load_completed_keys(records):
     return done
 
 
-def one_case(spec, binary, contract, timeout, cwd, model, effort):
+def one_case(spec, binary, contract, timeout, cwd, model, effort, wrap="none"):
     prompt_dir = Path(spec["run_dir"]) / "tmp-prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_file = prompt_dir / ("%s-%s-%s.txt" % (spec["num"], spec["mode"], spec["repetition"]))
-    prompt_file.write_text(spec["prompt"], encoding="utf-8")
+    prompt_file.write_text(wrap_prompt(spec["prompt"], wrap), encoding="utf-8")
     try:
         command = build_command(
             binary,
@@ -405,7 +407,7 @@ def planned_jobs(rows, modes, repetitions):
     return jobs
 
 
-def build_identity(bank, modes, repetitions, model, effort, contract, binary, version, cwd):
+def build_identity(bank, modes, repetitions, model, effort, contract, binary, version, cwd, wrap="none"):
     return {
         "bank_sha256": _sha256(bank),
         "modes": list(modes),
@@ -416,6 +418,7 @@ def build_identity(bank, modes, repetitions, model, effort, contract, binary, ve
         "grok_bin": str(Path(binary).resolve()),
         "grok_version": version,
         "cwd": str(Path(cwd or os.getcwd()).expanduser().resolve()),
+        "wrap": wrap or "none",
     }
 
 
@@ -544,6 +547,7 @@ def breaktest_main(args):
         model = getattr(args, "model", None)
         effort = getattr(args, "reasoning_effort", None)
         cwd = getattr(args, "cwd", None)
+        wrap = getattr(args, "wrap", "none") or "none"
         if "override" in modes:
             # Fail before creating run artifacts when a Windows batch shim cannot carry the contract.
             build_command(
@@ -566,6 +570,7 @@ def breaktest_main(args):
             binary,
             version,
             cwd,
+            wrap,
         )
         jobs = planned_jobs(rows, modes, repetitions)
         for job in jobs:
@@ -645,7 +650,7 @@ def breaktest_main(args):
                         cancelled = True
                         break
                     _emit_case_start(job, len(records), len(jobs))
-                    record = one_case(job, binary, contract, timeout, cwd, model, effort)
+                    record = one_case(job, binary, contract, timeout, cwd, model, effort, wrap)
                     _save_record(run_dir, ndjson_path, records, record, len(jobs))
                     if record.get("cancelled"):
                         cancelled = True
@@ -669,7 +674,7 @@ def breaktest_main(args):
                         except StopIteration:
                             break
                         _emit_case_start(job, len(records), len(jobs))
-                        futures[pool.submit(one_case, job, binary, contract, timeout, cwd, model, effort)] = job
+                        futures[pool.submit(one_case, job, binary, contract, timeout, cwd, model, effort, wrap)] = job
                     while futures:
                         done, _ = wait(futures, return_when=FIRST_COMPLETED)
                         for future in done:
@@ -686,7 +691,7 @@ def breaktest_main(args):
                             except StopIteration:
                                 break
                             _emit_case_start(job, len(records), len(jobs))
-                            futures[pool.submit(one_case, job, binary, contract, timeout, cwd, model, effort)] = job
+                            futures[pool.submit(one_case, job, binary, contract, timeout, cwd, model, effort, wrap)] = job
 
             try:
                 (run_dir / "tmp-prompts").rmdir()

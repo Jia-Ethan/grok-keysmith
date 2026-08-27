@@ -1,6 +1,6 @@
 [project]
 name = "grok-keysmith"
-version = "0.4.1"
+version = "0.5.0"
 requires-python = ">=3.8"
 description = "Versioned Grok Build instruction deployment"
 

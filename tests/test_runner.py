@@ -15,11 +15,13 @@ import pytest
 
 from grok_keysmith_runner import (
     STREAM_EVENT_PREFIX,
+    FIXTURE_WRAP_MARK,
     RunnerError,
     build_command,
     find_grok_on_path,
     run_stream,
     validate_command,
+    wrap_prompt,
 )
 from tests.conftest import CLI, FAKE_GROK, cli_env, parse_envelope, run_cli
 
@@ -375,3 +377,49 @@ def test_runner_cooperative_cancel_cleans_prompt_temp(isolated_home):
     assert envelope["exit_code"] == 130
     assert envelope["result"]["cancelled"] is True
     assert set(Path(os.environ.get("TMPDIR", "/tmp")).glob("grok-keysmith-prompt-*")) == before
+
+
+def test_wrap_prompt_prefixes_once():
+    raw = "The server is not mine."
+    wrapped = wrap_prompt(raw, "fixture")
+    assert wrapped.startswith(FIXTURE_WRAP_MARK)
+    assert wrapped.endswith(raw)
+    assert wrap_prompt(wrapped, "fixture") == wrapped
+    assert wrap_prompt(raw, "none") == raw
+    with pytest.raises(RunnerError, match="unknown wrap"):
+        wrap_prompt(raw, "jailbreak")
+
+
+def test_runner_wrap_fixture_changes_user_prompt(isolated_home):
+    home, grok_dir = isolated_home
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    fake = _fake_bin(home)
+    plain = parse_envelope(
+        run_cli(
+            ["run", "--grok-bin", fake, "--prompt", "hello fixture", "--timeout", "5"],
+            grok_dir,
+            home=home,
+        )
+    )
+    wrapped = parse_envelope(
+        run_cli(
+            [
+                "run",
+                "--wrap",
+                "fixture",
+                "--grok-bin",
+                fake,
+                "--prompt",
+                "hello fixture",
+                "--timeout",
+                "5",
+            ],
+            grok_dir,
+            home=home,
+        )
+    )
+    assert plain["ok"] is True
+    assert wrapped["ok"] is True
+    plain_chars = int(plain["result"]["stdout"].split("prompt_chars=")[1].split()[0])
+    wrap_chars = int(wrapped["result"]["stdout"].split("prompt_chars=")[1].split()[0])
+    assert wrap_chars > plain_chars

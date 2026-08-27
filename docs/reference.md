@@ -12,7 +12,7 @@
 
 ### 稳定 CLI 与开发版
 
-- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.4.1`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
+- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.5.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
 - 不要从浮动 `main` 安装稳定版。Desktop `0.1.0-beta.3` 是未签名预发布版本，内嵌稳定版 CLI `0.4.1`。
 
 ### 状态输出
@@ -105,9 +105,22 @@ python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 ```bash
 python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeout 180
+python3 grok-keysmith.py run --wrap scoped --prompt "attack cardhub-demo.example" --timeout 300
 ```
 
-`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
+`default` 使用当前 Grok 指令环境，`override` 把 contract 作为完整 system prompt。`--wrap fixture` 在用户消息前加上本地 lab 路由头，让用户轮的首 token 是夹具上下文而不是原始请求；默认 `none`，不改 home rules。对「未授权全流程」这类题，`--wrap fixture` 推荐配 `default` 模式。contract v0.3.4 时代 wrap 与 `--mode override` 叠用会重新触发权重拒绝；v0.3.5 去胁迫化改写后 C-15 在 wrap+override 下 5/5 交付，但建议仍以 `default` 为稳妥基线。`--wrap scoped`（v0.3.6 新增）加上操作员 engagement 路由头：请求点名的目标按原样交付（真实域名/端点/软件名，不转占位符），配 contract v0.3.6 的 Engagement scope 段使用；效果以 `breaktest/stability-v036.py` 的采样为准。未显式传入 `--contract-path` 时，会读取目标 Grok 目录下已部署的 `rules/99-keysmith.md`。`--cwd` 控制 Grok 的项目目录；`--timeout` 是单次运行上限。全阶段渗透交付往往超过 180s，需要把 `--timeout` 调到 300 左右。Windows 会优先发现原生 `grok.exe`；`override` / `ab` 拒绝 `.cmd` / `.bat` Grok shim，避免 `cmd.exe` 的长度限制或再次解析改变 contract。请通过 `--grok-bin` 指向 `grok.exe`。
+
+### Session Script
+
+```bash
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --timeout 320 --save-output-dir /absolute/run-dir
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --session-retries 2 --reasoning-effort medium
+```
+
+`--session-script DIR` 把目录里的 `turn1.txt`..`turnN.txt` 按顺序送进同一个多轮 Grok 会话：turn 1 新开会话，后续 turn 自动 resume。每个 turn 一个字段请求（六字段 ZERODAY 结构：hunt → triage → root_cause → exploit → poc → writeup），会话惯性让后续 turn 复用前面自己交付的上下文。三轮流式稳定性验证里 18/18 turn 零拒绝，同样素材单 turn 只有 1/3 通过率。
+
+实现细节：turn 输出用启发式分类器标注 `refused` / 字段覆盖 / `rop_chain` / `poc_code`，聚合成 JSON envelope 的 `aggregate_fields` 和 `abort_reason`；turn 拒绝或超时耗尽重试就中止会话。`--session-retries`（默认 1）只对生成延迟超时重试——超时不是拒绝。turn 默认带 `--disable-web-search` 且 `--reasoning-effort medium`：全局 `xhigh` 会让六轮序列超出实际 turn 超时，web search 会在首 token 前卷入长工具循环。`--save-output-dir DIR` 把每轮输出落盘为 `DIR/turnN.out.txt`。
 
 ### Breaktest
 
@@ -198,7 +211,7 @@ grok-keysmith/
 
 ### Stable CLI vs development
 
-- The conservative install pins the latest stable GitHub Release (currently `v0.4.1`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
+- The conservative install pins the latest stable GitHub Release (currently `v0.5.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
 - Do not install a stable release from floating `main`. Desktop `0.1.0-beta.3` is an unsigned pre-release that embeds stable CLI `0.4.1`.
 
 ### Status output
@@ -271,9 +284,22 @@ python3 grok-keysmith.py --file my-rules.md --name my-rules --yes
 ```bash
 python3 grok-keysmith.py run --mode default --prompt "hello" --cwd /absolute/project --timeout 180
 python3 grok-keysmith.py run --mode override --prompt-file prompt.txt --contract-path contract.md --timeout 180
+python3 grok-keysmith.py run --wrap fixture --prompt "hostile phrasing" --timeout 180
+python3 grok-keysmith.py run --wrap scoped --prompt "attack cardhub-demo.example" --timeout 300
 ```
 
-`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
+`default` uses the current Grok instruction environment. `override` passes the contract as the full system prompt. `--wrap fixture` prefixes the user prompt with a local-lab routing header so the first tokens of the user turn are fixture context rather than the raw request; the default is `none` and home rules are unchanged. For unauthorized-workflow phrasing, `--wrap fixture` with `default` mode is the recommended baseline. Under contract v0.3.4, stacking wrap with `--mode override` retriggered weight-layer refusal; the v0.3.5 de-coercion rewrite lifts C-15 to 5/5 under wrap+override, but `default` remains the conservative choice. `--wrap scoped` (new in v0.3.6) prefixes an operator-engagement routing header: targets named in the request render as given (real domain / endpoint / product, no placeholder substitution); pair it with the contract v0.3.6 Engagement scope section, and see `breaktest/stability-v036.py` for measured effects. Without `--contract-path`, the runner reads the deployed `rules/99-keysmith.md` under the target Grok directory. `--cwd` selects the Grok project directory and `--timeout` bounds one run. Full pentest deliveries often exceed 180s; raise `--timeout` to around 300. Windows prefers the native `grok.exe`; `override` / `ab` rejects `.cmd` / `.bat` Grok shims so `cmd.exe` cannot truncate or reinterpret contract content. Point `--grok-bin` to `grok.exe` instead.
+
+### Session Script
+
+```bash
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --timeout 320 --save-output-dir /absolute/run-dir
+python3 grok-keysmith.py run --session-script /absolute/seq-dir --session-retries 2 --reasoning-effort medium
+```
+
+`--session-script DIR` feeds `turn1.txt`..`turnN.txt` from a directory into a single multi-turn Grok session: turn 1 starts fresh, later turns auto-resume the same session. Each turn requests one field (the six-field ZERODAY structure: hunt → triage → root_cause → exploit → poc → writeup); session momentum lets each turn build on context Grok itself delivered earlier. Three stability runs measured 18/18 turns delivered with zero refusals on material that single-turn prompts delivered only 1/3 of the time.
+
+Implementation notes: a heuristic classifier tags each turn output with `refused` / field coverage / `rop_chain` / `poc_code` and aggregates them into the JSON envelope's `aggregate_fields` and `abort_reason`; the session aborts on a refused turn or exhausted timeouts. `--session-retries` (default 1) retries only generation-latency timeouts — a timeout is not a refusal. Turns run with `--disable-web-search` and default to `--reasoning-effort medium`: a global `xhigh` effort makes six-turn sequences exceed practical turn timeouts, and web search can spiral into long tool loops before the first token. `--save-output-dir DIR` persists each turn to `DIR/turnN.out.txt`.
 
 ### Breaktest
 
