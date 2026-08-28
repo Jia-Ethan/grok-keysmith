@@ -83,7 +83,7 @@ def _version():
     try:
         from grok_keysmith_loader import VERSION
     except Exception:
-        VERSION = "0.4.0-dev"
+        VERSION = "0.5.0"
         try:
             text = Path(__file__).with_name("grok-keysmith.py").read_text(encoding="utf-8")
             for line in text.splitlines():

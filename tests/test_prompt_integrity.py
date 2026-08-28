@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import base64
 import hashlib
+import sys
 from pathlib import Path
+
+import grok_keysmith_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -54,3 +57,14 @@ def test_version_file_matches_python_constant():
         "SECURITY.md",
     ):
         assert version in (ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_runner_frozen_fallback_matches_cli_version(monkeypatch):
+    expected = _constants()["VERSION"]
+    monkeypatch.delitem(sys.modules, "grok_keysmith_loader", raising=False)
+    monkeypatch.setattr(
+        grok_keysmith_runner.Path,
+        "read_text",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("frozen bundle")),
+    )
+    assert grok_keysmith_runner._version() == expected
