@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [Desktop 0.1.0-beta.4] - Unreleased
+
+Fourth desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.5.0`.
+
+### Changed
+
+- Reworked the Desktop visual system around a calmer clay canvas, tech-blue controls, glass surfaces, and a responsive icon-first sidebar while preserving the existing Status, Deploy, Manage, Settings, and Advanced tools workflows.
+- Updated English and Simplified Chinese navigation labels to match the compact sidebar treatment.
+
+### Fixed
+
+- Restored accessible default-button contrast in light and dark themes.
+- Applied reduced-motion preferences to ambient effects, transitions, hover treatments, sidebar springs, and the active-navigation indicator.
+
 ## [0.5.0] - 2026-08-20
 
 Bundled contract v0.3.7 (SHA-256 `e8fe31213190fafca46f82800a62586faa3780af56c27b4d1b5fd70aee24efd1`, 13833 bytes).
@@ -312,6 +326,7 @@ version and does not include the earlier private-only predecessor.
 
 [0.5.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
+[Desktop 0.1.0-beta.4]: https://github.com/Jia-Ethan/grok-keysmith/compare/desktop-v0.1.0-beta.3...HEAD
 [Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1

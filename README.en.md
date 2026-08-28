@@ -42,7 +42,7 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 ### Install options
 
 1. **Conservative: stable CLI.** Use the complete ZIP / Tarball from the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.5.0`), or check out the same tag. `run` and `breaktest` require sibling modules, so do not download only `grok-keysmith.py` or install from floating `main`.
-2. **Easier: unsigned Desktop Beta.** See [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3): macOS Apple Silicon DMG and Windows x64 NSIS, embedding the stable `0.4.1` CLI sidecar. No developer signing, no auto-update, no Linux GUI.
+2. **Easier: unsigned Desktop Beta.** The current public build remains [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3). This branch prepares `desktop-v0.1.0-beta.4` with the stable `0.5.0` CLI sidecar; formal installers will be rebuilt from the final tag. No developer signing, no auto-update, no Linux GUI.
 
 ### Quick start
 
@@ -107,7 +107,7 @@ If a formatter or settings UI rewrote `config.toml` but the three `[compat.*]` t
 ### Advanced docs
 
 - Compat / hooks / recovery: [`docs/reference.md`](docs/reference.md)
-- Desktop: [`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.3.md`](docs/releases/desktop-v0.1.0-beta.3.md)
+- Desktop: [`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.4.md`](docs/releases/desktop-v0.1.0-beta.4.md)
 - Agent install: [`docs/agent-install.md`](docs/agent-install.md)
 
 ### Contributing, security, and the series
