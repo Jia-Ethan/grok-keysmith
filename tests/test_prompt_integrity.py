@@ -37,14 +37,14 @@ def test_bundled_prompt_matches_example_and_hash():
     assert bundled == prompt
     digest = hashlib.sha256(prompt).hexdigest()
     assert digest == constants["BUNDLED_PROMPT_SHA256"]
-    assert digest == "e8fe31213190fafca46f82800a62586faa3780af56c27b4d1b5fd70aee24efd1"
+    assert digest == "99a1cf9700ce9c98914454763d59855ed3398af66c67ba804c6384a75a4064d9"
 
 
 def test_version_file_matches_python_constant():
     constants = _constants()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert version == constants["VERSION"]
-    assert version == "0.5.0"
+    assert version == "0.5.1"
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "%s"' % version in pyproject
     for relative_path in (

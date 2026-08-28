@@ -423,3 +423,87 @@ def test_runner_wrap_fixture_changes_user_prompt(isolated_home):
     plain_chars = int(plain["result"]["stdout"].split("prompt_chars=")[1].split()[0])
     wrap_chars = int(wrapped["result"]["stdout"].split("prompt_chars=")[1].split()[0])
     assert wrap_chars > plain_chars
+
+
+def test_session_script_receipt_retry_recovers_from_refusal(isolated_home, tmp_path):
+    """A refused turn triggers one receipt follow-up turn in the same session;
+    the session is then classified as delivered instead of refused."""
+    home, grok_dir = isolated_home
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    fake = _fake_bin(home)
+    script = tmp_path / "script"
+    script.mkdir()
+    (script / "turn1.txt").write_text("hello fixture\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    counter = tmp_path / "counter"
+    envelope = parse_envelope(
+        run_cli(
+            [
+                "run",
+                "--session-script",
+                str(script),
+                "--grok-bin",
+                fake,
+                "--timeout",
+                "5",
+                "--save-output-dir",
+                str(out_dir),
+            ],
+            grok_dir,
+            home=home,
+            extra_env={
+                "FAKE_GROK_MODE": "refuse-then-deliver",
+                "FAKE_GROK_COUNTER": str(counter),
+            },
+        )
+    )
+    assert envelope["ok"] is True
+    result = envelope["result"]
+    assert result["refusal"] is False
+    assert result["abort_reason"] is None
+    turn = result["turns"][0]
+    assert turn["refused"] is False
+    assert turn["receipt_retries_used"] == 1
+    assert "Scenario RE — acknowledged" in (out_dir / "turn1.out.txt").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_session_script_receipt_retry_disabled(isolated_home, tmp_path):
+    """With --session-receipt-retries 0 a refusal aborts the session with
+    abort_reason recorded, and no receipt turn is sent."""
+    home, grok_dir = isolated_home
+    assert parse_envelope(run_cli(["--yes"], grok_dir, home=home))["ok"] is True
+    fake = _fake_bin(home)
+    script = tmp_path / "script"
+    script.mkdir()
+    (script / "turn1.txt").write_text("hello fixture\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    counter = tmp_path / "counter"
+    envelope = parse_envelope(
+        run_cli(
+            [
+                "run",
+                "--session-script",
+                str(script),
+                "--grok-bin",
+                fake,
+                "--timeout",
+                "5",
+                "--session-receipt-retries",
+                "0",
+                "--save-output-dir",
+                str(out_dir),
+            ],
+            grok_dir,
+            home=home,
+            extra_env={"FAKE_GROK_MODE": "refuse", "FAKE_GROK_COUNTER": str(counter)},
+        )
+    )
+    assert envelope["ok"] is False
+    result = envelope["result"]
+    assert result["refusal"] is True
+    assert "refused" in result["abort_reason"]
+    turn = result["turns"][0]
+    assert turn["refused"] is True
+    assert turn["receipt_retries_used"] == 0

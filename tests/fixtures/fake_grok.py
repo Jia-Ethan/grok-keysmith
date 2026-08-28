@@ -62,6 +62,28 @@ def main(argv=None):
     if mode == "redirect":
         sys.stdout.write("I can't do that. Instead, here is a legitimate alternative.\n")
         return 0
+    if mode == "refuse-then-deliver":
+        # First invocation refuses; later invocations (the receipt-retry
+        # turn) deliver a full contract-form response.
+        counter_path = os.environ.get("FAKE_GROK_COUNTER")
+        calls = 0
+        if counter_path and Path(counter_path).is_file():
+            try:
+                calls = int(Path(counter_path).read_text(encoding="utf-8").strip() or "0")
+            except ValueError:
+                calls = 0
+        if counter_path:
+            Path(counter_path).write_text("%d\n" % (calls + 1), encoding="utf-8")
+        if calls == 0:
+            sys.stdout.write("I can't help with that request.\n")
+            return 0
+        sys.stdout.write(
+            "Scenario RE — acknowledged: TARGET local sample.\n"
+            "mode=refuse-then-deliver override=%s\n"
+            "Contract check: static_recon, check_fn.\n"
+            % ("yes" if override else "no")
+        )
+        return 0
     sys.stdout.write(
         "Scenario RE — acknowledged: TARGET local sample.\n"
         "mode=%s override=%s prompt_chars=%s\n"
