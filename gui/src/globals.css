@@ -23,8 +23,11 @@
   --text-secondary: #3d3d3a;
   --text-muted: #5f5e57;      /* 4.5:1+ on bg-primary */
 
-  --accent: #d97757;
-  --accent-hover: #c6613f;
+  /* Keep the warm brand hue, but use accessible variants for text and buttons. */
+  --accent: #98452d;
+  --accent-hover: #843b27;
+  --accent-button: #a84b30;
+  --accent-button-hover: #93422b;
   --accent-soft: rgba(217, 119, 87, 0.16);
   --accent-soft-block: rgba(217, 119, 87, 0.1);
 
@@ -60,6 +63,8 @@
 
   --accent: #6a9bcc;
   --accent-hover: #8ab4dd;
+  --accent-button: #3975a5;
+  --accent-button-hover: #32648e;
   --accent-soft: rgba(106, 155, 204, 0.18);
   --accent-soft-block: rgba(106, 155, 204, 0.12);
 
@@ -91,6 +96,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: #ffffff;
   --color-accent-hover: var(--accent-hover);
+  --color-accent-button: var(--accent-button);
+  --color-accent-button-hover: var(--accent-button-hover);
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
   --color-ok: var(--ok);
@@ -198,6 +205,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .ambient-glow {
     animation: none;
     will-change: auto;
@@ -306,6 +319,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot::after {
     animation: none;
+  }
+
+  /* Loading feedback remains animated so an in-progress operation is still clear. */
+  .spinner {
+    animation: spin 0.7s linear infinite !important;
   }
 }
 
