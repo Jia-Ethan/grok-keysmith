@@ -10,7 +10,7 @@ import {
   ChevronsRight,
   Hammer,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useAppState } from "@/hooks/useAppState";
 import { setView } from "@/lib/store";
@@ -34,6 +34,7 @@ const NAV_ICONS = {
 export function Sidebar() {
   const { t } = useTranslation();
   const { view, operationInProgress } = useAppState();
+  const reduceMotion = useReducedMotion();
   const [pinned, setPinned] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(() => getSettings().showAdvancedTools);
 
@@ -43,31 +44,42 @@ export function Sidebar() {
   );
 
   const nav = buildNav(showAdvanced).map((key) => ({ key, icon: NAV_ICONS[key] }));
+  const sidebarTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring", stiffness: 380, damping: 34 };
+  const activeNavTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring", stiffness: 420, damping: 32 };
 
   return (
     <motion.nav
-      aria-label="grok-keysmith"
+      aria-label={t("nav.subtitle")}
       className={cn(
         "group/sidebar relative z-10 flex h-full flex-col border-r border-border",
         "bg-[color-mix(in_srgb,var(--bg-secondary)_72%,transparent)] backdrop-blur-xl",
       )}
       initial={false}
       animate={{ width: pinned ? 200 : 56 }}
-      whileHover={{ width: 200 }}
+      whileHover={reduceMotion ? undefined : { width: 200 }}
       onFocusCapture={() => setPinned(true)}
       onBlurCapture={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setPinned(false);
       }}
-      transition={{ type: "spring", stiffness: 380, damping: 34 }}
+      transition={sidebarTransition}
       style={{ minWidth: 56 }}
     >
+      {/* 品牌 */}
       <div className="flex h-14 items-center gap-2.5 border-b border-border px-[15px]">
         <KeyRound className="size-5 shrink-0 text-accent" aria-hidden="true" />
         <div className="overflow-hidden whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100 group-focus-within/sidebar:opacity-100">
           <div className="text-sm font-semibold leading-tight">keysmith</div>
+          <div className="text-[10px] text-muted-foreground leading-tight">
+            {t("nav.subtitle")}
+          </div>
         </div>
       </div>
 
+      {/* 导航项 */}
       <TooltipProvider delayDuration={200}>
         <div className="flex flex-1 flex-col gap-1 p-2">
           {nav.map(({ key, icon: Icon }) => {
@@ -89,13 +101,13 @@ export function Sidebar() {
               >
                 {active && (
                   <motion.span
-                    layoutId="nav-active"
+                    layoutId={reduceMotion ? undefined : "nav-active"}
                     className="absolute inset-0 rounded-[10px] bg-accent-soft"
-                    transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                    transition={activeNavTransition}
                   />
                 )}
                 <Icon className="relative z-10 size-[18px] shrink-0" aria-hidden="true" />
-                <span className="relative z-10 overflow-hidden whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100 group-focus-within/sidebar:opacity-100">
+                <span className="relative z-10 nav-label overflow-hidden whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover/sidebar:opacity-100 group-focus-within/sidebar:opacity-100">
                   {t(`nav.${key}`)}
                 </span>
               </button>
@@ -110,6 +122,7 @@ export function Sidebar() {
         </div>
       </TooltipProvider>
 
+      {/* 收起/展开（键盘可达的显式开关） */}
       <div className="border-t border-border p-2">
         <button
           onClick={() => setPinned((v) => !v)}
