@@ -42,7 +42,7 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 ### 安装方式
 
 1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.5.0`）的完整 ZIP / Tarball，或 checkout 同一 tag。`run` 与 `breaktest` 依赖同目录模块，不要只下载 `grok-keysmith.py`，也不要从浮动 `main` 安装。
-2. **更易用：未签名 Desktop Beta。** 当前公开版仍是 [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3)。本分支正在准备 `desktop-v0.1.0-beta.4`，将内嵌稳定版 `0.5.0` CLI sidecar；正式安装包会从最终 tag 重新构建。无开发者签名、无自动更新、无 Linux GUI。
+2. **更易用：未签名 Desktop Beta。** 当前公开版是 [desktop-v0.1.0-beta.4](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)，内嵌稳定版 `0.5.0` CLI sidecar。它是公开的 GitHub Pre-release（不是稳定 Latest）；无开发者签名、无自动更新、无 Linux GUI。
 
 ### 快速开始
 

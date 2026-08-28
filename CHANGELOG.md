@@ -6,9 +6,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [Desktop 0.1.0-beta.4] - Unreleased
+## [Desktop 0.1.0-beta.4] - 2026-08-29
 
-Fourth desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.5.0`.
+Fourth desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.5.0`. Published as the public GitHub pre-release [`desktop-v0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4).
 
 ### Changed
 
@@ -326,7 +326,7 @@ version and does not include the earlier private-only predecessor.
 
 [0.5.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
-[Desktop 0.1.0-beta.4]: https://github.com/Jia-Ethan/grok-keysmith/compare/desktop-v0.1.0-beta.3...HEAD
+[Desktop 0.1.0-beta.4]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4
 [Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1

@@ -42,7 +42,7 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 ### Install options
 
 1. **Conservative: stable CLI.** Use the complete ZIP / Tarball from the [latest stable Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest) (currently `v0.5.0`), or check out the same tag. `run` and `breaktest` require sibling modules, so do not download only `grok-keysmith.py` or install from floating `main`.
-2. **Easier: unsigned Desktop Beta.** The current public build remains [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3). This branch prepares `desktop-v0.1.0-beta.4` with the stable `0.5.0` CLI sidecar; formal installers will be rebuilt from the final tag. No developer signing, no auto-update, no Linux GUI.
+2. **Easier: unsigned Desktop Beta.** The current public build is [desktop-v0.1.0-beta.4](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4) with the stable `0.5.0` CLI sidecar. It is a public GitHub Pre-release (not the stable Latest release); there is no developer signing, auto-update, or Linux GUI.
 
 ### Quick start
 

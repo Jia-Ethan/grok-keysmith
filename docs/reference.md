@@ -13,7 +13,7 @@
 ### 稳定 CLI 与开发版
 
 - 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.5.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
-- 不要从浮动 `main` 安装稳定版。当前公开 Desktop 仍是 `0.1.0-beta.3`；本分支正在准备未签名的 `0.1.0-beta.4`，内嵌稳定版 CLI `0.5.0`，正式安装包必须从最终 tag 重建。
+- 不要从浮动 `main` 安装稳定版。当前公开 Desktop 为 [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)，内嵌稳定版 CLI `0.5.0`，并以公开 GitHub Pre-release 形式提供；它不是稳定 Latest 版本。
 
 ### 状态输出
 
@@ -186,7 +186,7 @@ grok-keysmith/
 ├── grok-unrestricted.sh/.ps1     # Runner 包装
 ├── examples/grok-unrestricted.md
 ├── tests/                        # 隔离 HOME / fake Grok 测试
-├── gui/                          # Desktop 0.1.0-beta.4 release candidate source
+├── gui/                          # Desktop 0.1.0-beta.4 release source
 ├── VERSION
 ├── docs/
 ├── README.md / README.en.md
@@ -212,7 +212,7 @@ grok-keysmith/
 ### Stable CLI vs development
 
 - The conservative install pins the latest stable GitHub Release (currently `v0.5.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
-- Do not install a stable release from floating `main`. The public Desktop remains `0.1.0-beta.3`; this branch prepares unsigned `0.1.0-beta.4` with stable CLI `0.5.0`, and formal installers must be rebuilt from the final tag.
+- Do not install a stable release from floating `main`. The public Desktop is [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4), delivered as a public GitHub Pre-release with the stable CLI `0.5.0` sidecar; it is not the stable Latest release.
 
 ### Status output
 
