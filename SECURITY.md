@@ -41,13 +41,13 @@ journal、intent、manifest、cleanup evidence 是防止意外漂移和普通并
 
 ## prompt 完整性与 SHA-256 校验
 
-v0.5.1 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `99a1cf9700ce9c98914454763d59855ed3398af66c67ba804c6384a75a4064d9`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/rules/99-keysmith.md` 的内容应与源文件 byte-for-byte 一致。
+v0.5.2 内置提示词来源为 [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md),SHA-256 `eb68d56c2c52663ecff5cef971e7374b3b3872d729c0ea41fa6e63be48ab907c`。该文件以 base64 逐字节嵌入 [`grok-keysmith.py`](grok-keysmith.py),部署时写入 `~/.grok/rules/99-keysmith.md` 的内容应与源文件 byte-for-byte 一致。
 
 部署后应校验:
 
 ```bash
 shasum -a 256 ~/.grok/rules/99-keysmith.md
-# 应输出: 99a1cf9700ce9c98914454763d59855ed3398af66c67ba804c6384a75a4064d9  /Users/you/.grok/rules/99-keysmith.md
+# 应输出: eb68d56c2c52663ecff5cef971e7374b3b3872d729c0ea41fa6e63be48ab907c  /Users/you/.grok/rules/99-keysmith.md
 ```
 
 如果校验失败,说明部署过程中内容被篡改或写入异常。不要使用校验失败的部署;先 `--uninstall --yes` 撤销,再重新部署。
@@ -94,13 +94,13 @@ Journal, intent, manifest, and cleanup-marker data is consistency evidence again
 
 ## Prompt integrity and SHA-256 verification
 
-The v0.5.1 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `99a1cf9700ce9c98914454763d59855ed3398af66c67ba804c6384a75a4064d9`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/rules/99-keysmith.md` should match the source file byte-for-byte.
+The v0.5.2 bundled prompt source is [`examples/grok-unrestricted.md`](examples/grok-unrestricted.md), SHA-256 `eb68d56c2c52663ecff5cef971e7374b3b3872d729c0ea41fa6e63be48ab907c`. It is embedded byte-for-byte (base64) in [`grok-keysmith.py`](grok-keysmith.py); the content written to `~/.grok/rules/99-keysmith.md` should match the source file byte-for-byte.
 
 Verify after deployment:
 
 ```bash
 shasum -a 256 ~/.grok/rules/99-keysmith.md
-# should output: 99a1cf9700ce9c98914454763d59855ed3398af66c67ba804c6384a75a4064d9  /Users/you/.grok/rules/99-keysmith.md
+# should output: eb68d56c2c52663ecff5cef971e7374b3b3872d729c0ea41fa6e63be48ab907c  /Users/you/.grok/rules/99-keysmith.md
 ```
 
 If verification fails, the content was tampered with or written abnormally. Do not use a failed deployment; run `--uninstall --yes` first, then redeploy.
