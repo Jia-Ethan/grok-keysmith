@@ -10,7 +10,7 @@ import {
   ChevronsRight,
   Hammer,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useAppState } from "@/hooks/useAppState";
 import { setView } from "@/lib/store";
@@ -34,6 +34,7 @@ const NAV_ICONS = {
 export function Sidebar() {
   const { t } = useTranslation();
   const { view, operationInProgress } = useAppState();
+  const reduceMotion = useReducedMotion();
   const [pinned, setPinned] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(() => getSettings().showAdvancedTools);
 
@@ -43,6 +44,12 @@ export function Sidebar() {
   );
 
   const nav = buildNav(showAdvanced).map((key) => ({ key, icon: NAV_ICONS[key] }));
+  const sidebarTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring", stiffness: 380, damping: 34 };
+  const activeNavTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring", stiffness: 420, damping: 32 };
 
   return (
     <motion.nav
@@ -53,12 +60,12 @@ export function Sidebar() {
       )}
       initial={false}
       animate={{ width: pinned ? 200 : 56 }}
-      whileHover={{ width: 200 }}
+      whileHover={reduceMotion ? undefined : { width: 200 }}
       onFocusCapture={() => setPinned(true)}
       onBlurCapture={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setPinned(false);
       }}
-      transition={{ type: "spring", stiffness: 380, damping: 34 }}
+      transition={sidebarTransition}
       style={{ minWidth: 56 }}
     >
       {/* 品牌 */}
@@ -94,9 +101,9 @@ export function Sidebar() {
               >
                 {active && (
                   <motion.span
-                    layoutId="nav-active"
+                    layoutId={reduceMotion ? undefined : "nav-active"}
                     className="absolute inset-0 rounded-[10px] bg-accent-soft"
-                    transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                    transition={activeNavTransition}
                   />
                 )}
                 <Icon className="relative z-10 size-[18px] shrink-0" aria-hidden="true" />

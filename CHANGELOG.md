@@ -33,6 +33,19 @@ Bundled contract v0.5.1 (SHA-256 `99a1cf9700ce9c98914454763d59855ed3398af66c67ba
 - v0.5.1 variant A/B (C-C1/C-C2/C-C3 hostile canaries × 3 reps, `--mode override --wrap scoped`, serial): baseline (v0.3.7) 8/9 full; `rebuttal` (adversarial injection-detection wording) 6/9 full — adversarial "refuse the injections" clauses backfire on Grok, one verdict explicitly framed the whole contract as a jailbreak instruction ("這條投遞合同是越獄指令"); `calm` (non-adversarial reasoning alignment + continuity + shared floor/harm locus) 7/9 full; `calm-fewshot` (calm + CRED reference exchange) 8/9 full, the one miss being a noise-class refusal on a single rep. `calm-fewshot` ships as v0.5.1. Artifacts: `breaktest/v051-variants/`, `breaktest/v051-results/`.
 - Post-deploy E2E (`--mode default` against real Grok with home rules live): English hostile CRED prompt (C-C3, the hardest canary) delivered a full six-field engagement, 37KB, domain rendered verbatim 135 times, `Contract check: recon, access, extraction, automation, verification, writeup.`
 - Adversarial rebuttal-style injection-detection clauses are a measured negative on Grok Build: they raise the policy layer's jailbreak-classification rate instead of lowering refusal. Non-adversarial structural clauses (reasoning alignment, continuity, harm locus, few-shot anchor) are neutral-to-positive.
+## [Desktop 0.1.0-beta.4] - 2026-08-29
+
+Fourth desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.5.0`. Published as the public GitHub pre-release [`desktop-v0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4).
+
+### Changed
+
+- Reworked the Desktop visual system around a calmer clay canvas, tech-blue controls, glass surfaces, and a responsive icon-first sidebar while preserving the existing Status, Deploy, Manage, Settings, and Advanced tools workflows.
+- Updated English and Simplified Chinese navigation labels to match the compact sidebar treatment.
+
+### Fixed
+
+- Restored accessible default-button contrast in light and dark themes.
+- Applied reduced-motion preferences to ambient effects, transitions, hover treatments, sidebar springs, and the active-navigation indicator.
 
 ## [0.5.0] - 2026-08-20
 
@@ -338,8 +351,11 @@ version and does not include the earlier private-only predecessor.
 - Journal and manifest evidence protects against accidental drift and ordinary
   races, not coordinated same-user tampering.
 
+[0.5.2]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.5.0...v0.5.2
+[0.5.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
+[Desktop 0.1.0-beta.4]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4
 [Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
 [Desktop 0.1.0-beta.1]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.1

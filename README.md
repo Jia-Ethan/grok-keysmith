@@ -42,7 +42,7 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 ### 安装方式
 
 1. **稳妥：稳定 CLI。** 使用 [最新稳定 Release](https://github.com/Jia-Ethan/grok-keysmith/releases/latest)（当前 `v0.5.2`）的完整 ZIP / Tarball，或 checkout 同一 tag。`run` 与 `breaktest` 依赖同目录模块，不要只下载 `grok-keysmith.py`，也不要从浮动 `main` 安装。
-2. **更易用：未签名 Desktop Beta。** 见 [desktop-v0.1.0-beta.3](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3)：macOS Apple Silicon DMG 与 Windows x64 NSIS，内嵌稳定版 `0.4.1` CLI sidecar。无开发者签名、无自动更新、无 Linux GUI。
+2. **更易用：未签名 Desktop Beta。** 当前公开版是 [desktop-v0.1.0-beta.4](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)，内嵌稳定版 `0.5.0` CLI sidecar。它是公开的 GitHub Pre-release（不是稳定 Latest）；无开发者签名、无自动更新、无 Linux GUI。
 
 ### 快速开始
 
@@ -107,7 +107,7 @@ formatter 或设置页重写了 `config.toml`、三组 `[compat.*]` 取值仍完
 ### 进阶文档
 
 - Compat / hooks / 恢复：[`docs/reference.md`](docs/reference.md)
-- Desktop：[`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.3.md`](docs/releases/desktop-v0.1.0-beta.3.md)
+- Desktop：[`gui/README.md`](gui/README.md) · [`docs/releases/desktop-v0.1.0-beta.4.md`](docs/releases/desktop-v0.1.0-beta.4.md)
 - 智能体安装：[`docs/agent-install.md`](docs/agent-install.md)
 
 ### 贡献、安全与系列

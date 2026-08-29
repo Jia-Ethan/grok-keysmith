@@ -9,7 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-accent text-white btn-glow hover:bg-accent-hover",
+          "bg-accent-button text-white btn-glow hover:bg-accent-button-hover",
         destructive:
           "bg-danger text-white hover:opacity-90 dark:hover:shadow-[0_0_20px_var(--danger-soft)]",
         outline:

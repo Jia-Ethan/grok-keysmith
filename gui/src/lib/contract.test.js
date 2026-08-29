@@ -21,7 +21,7 @@ import {
 const sample = {
   schema: ENVELOPE_SCHEMA,
   tool: "grok-keysmith",
-  version: "0.4.0",
+  version: "0.5.0",
   operation: "deploy",
   preview: true,
   apply: false,
