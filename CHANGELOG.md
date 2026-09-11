@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- README illustrations (zh/en) now use the shared champagne-key still-life set for hero, usage cards, dry-run preview, and the 14/22 → 19/22 result chart.
+
 ## [0.6.1] - 2026-09-10
 
 - README 改成产品说明首页：hero、使用方式、效果三张图。同日对照完整交付 14/22 → 19/22。
