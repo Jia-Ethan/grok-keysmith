@@ -68,7 +68,7 @@ const preview = spawn(
 
 const BASE_URL = "http://127.0.0.1:4173/";
 const SHA = "e8fe31213190fafca46f82800a62586faa3780af56c27b4d1b5fd70aee24efd1";
-const LONG_CLI_VERSION = `grok-keysmith 0.5.0 bundled prompt SHA-256: ${SHA}`;
+const LONG_CLI_VERSION = `grok-keysmith 0.6.1 bundled prompt SHA-256: ${SHA}`;
 const LONG_GROK_DIR = "/tmp/fixture/users/someone-with-a-very-long-home-directory-name/Library/Application Support/Grok/.grok";
 const failures = [];
 const evidence = [];

@@ -58,7 +58,7 @@ export default function App() {
     if (params.get("fixture") === "1") {
       completeCliCheck(beginCliCheck(), {
         path: "/tmp/fixture/grok-keysmith.py",
-        version: "grok-keysmith 0.5.0",
+        version: "grok-keysmith 0.6.1",
         runtime: "python",
         error: null,
         checked: true,

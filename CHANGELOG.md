@@ -8,6 +8,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - README illustrations (zh/en) now use the shared champagne-key still-life set for hero, usage cards, dry-run preview, and the 14/22 → 19/22 result chart.
 
+## [Desktop 0.1.0-beta.5] - 2026-09-21
+
+Fifth desktop pre-release for macOS Apple Silicon and Windows x64, bundling CLI `0.6.1`. Source and Desktop Candidate CI are ready; the public GitHub tag `desktop-v0.1.0-beta.5` is created only when publish is dispatched from `main`.
+
+### Changed
+
+- Sidecar follows CLI `0.6.1` instead of the `0.5.0` line still shipped in `desktop-v0.1.0-beta.4`.
+- Desktop Candidate CI pins Rust `1.88.0`, builds a real PyInstaller sidecar before Tauri, stages `SHA256SUMS`, and adds Windows close-while-sidecar plus single-instance smokes. Dummy sidecar binaries are no longer used for publishable packages.
+- Optional `publish_desktop_prerelease` remains off by default.
+
+### Notes
+
+- Advanced tools (Run/Test) stay behind the Settings toggle (default off). Envelope schema remains `grok-keysmith.envelope.v1`. Reconcile still binds `--expected-preview-token`. Live stream, cancel, and 16 MiB stdout are unchanged.
+
 ## [0.6.1] - 2026-09-10
 
 - README 改成产品说明首页：hero、使用方式、效果三张图。同日对照完整交付 14/22 → 19/22。
@@ -385,6 +399,7 @@ version and does not include the earlier private-only predecessor.
 [0.5.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Jia-Ethan/grok-keysmith/compare/v0.4.0...v0.4.1
+[Desktop 0.1.0-beta.5]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.5
 [Desktop 0.1.0-beta.4]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4
 [Desktop 0.1.0-beta.3]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.3
 [Desktop 0.1.0-beta.2]: https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.2
