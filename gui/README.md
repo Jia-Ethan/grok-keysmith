@@ -1,5 +1,9 @@
 # grok-keysmith desktop
 
+## 桌面停更
+
+這個獨立桌面不再發新的安裝包。已發出的版本保持原樣，不撤回，也不改成 Latest。之後的桌面只維護 [Keysmith Switch](https://github.com/Jia-Ethan/keysmith-switch)。範圍與進度見 [keysmith-switch#6](https://github.com/Jia-Ethan/keysmith-switch/issues/6)。
+
 Version `0.1.0-beta.5` wraps CLI `0.6.1`. The public GitHub pre-release remains [`desktop-v0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4) until this line is tagged; the beta stays marked as a pre-release rather than the stable Latest release.
 
 - Prepared macOS asset name: `grok-keysmith_0.1.0-beta.5_aarch64.dmg`
