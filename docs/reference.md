@@ -13,7 +13,7 @@
 ### 稳定 CLI 与开发版
 
 - 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.6.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
-- 不要从浮动 `main` 安装稳定版。当前公开 Desktop 为 [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)，内嵌稳定版 CLI `0.5.0`，并以公开 GitHub Pre-release 形式提供；它不是稳定 Latest 版本。
+- 不要从浮动 `main` 安装稳定版。当前公开 Desktop 仍为 [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)（内嵌 CLI `0.5.0`）。源码与 Desktop Candidate 已准备 [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md)，sidecar 为 CLI `0.6.1`；打公开 tag 前它不是可下载的 Pre-release，也不是稳定 Latest。
 
 > README 只保留用户面的快速开始与撤销入口。drift / 中断事务恢复 / 旧版 `AGENTS.md` 部署卸载、`run --session-script` 与 receipt 风格等开发版细节，统一在本页维护。
 
@@ -161,7 +161,7 @@ for document in (
     "README.en.md",
     "CHANGELOG.md",
     "SECURITY.md",
-    "docs/releases/desktop-v0.1.0-beta.4.md",
+    "docs/releases/desktop-v0.1.0-beta.5.md",
 ):
     assert version in Path(document).read_text(encoding="utf-8")
 assert bundled == prompt
@@ -188,7 +188,7 @@ grok-keysmith/
 ├── grok-unrestricted.sh/.ps1     # Runner 包装
 ├── examples/grok-unrestricted.md
 ├── tests/                        # 隔离 HOME / fake Grok 测试
-├── gui/                          # Desktop 0.1.0-beta.4 release source
+├── gui/                          # Desktop 0.1.0-beta.5 release source
 ├── VERSION
 ├── docs/
 ├── README.md / README.en.md
@@ -214,7 +214,7 @@ grok-keysmith/
 ### Stable CLI vs development
 
 - The conservative install pins the latest stable GitHub Release (currently `v0.6.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
-- Do not install a stable release from floating `main`. The public Desktop is [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4), delivered as a public GitHub Pre-release with the stable CLI `0.5.0` sidecar; it is not the stable Latest release.
+- Do not install a stable release from floating `main`. The public Desktop remains [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4) with CLI `0.5.0`. Source and Desktop Candidate now prepare [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md) wrapping CLI `0.6.1`; until that tag is published it is not a downloadable Pre-release, and it is not the stable Latest release.
 
 > The README keeps only the user-facing quick start and undo entry points. Drift / interrupted-transaction recovery / uninstalling legacy `AGENTS.md` deployments, plus development commands such as `run --session-script` and receipt styles, are maintained on this page.
 

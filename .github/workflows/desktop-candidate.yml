@@ -2,16 +2,24 @@ name: Desktop Candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_desktop_prerelease:
+        description: Publish the current unsigned desktop line as desktop-v<GUI-version>. Default off.
+        required: false
+        default: false
+        type: boolean
   pull_request:
     paths:
       - ".gitattributes"
       - ".github/workflows/desktop-candidate.yml"
       - "VERSION"
+      - "CHANGELOG.md"
       - "examples/grok-unrestricted.md"
       - "grok-keysmith.py"
       - "grok_keysmith_runner.py"
       - "grok_keysmith_breaktest.py"
       - "gui/**"
+      - "docs/releases/desktop-v*.md"
       - "tests/**"
 
 permissions:
@@ -25,6 +33,7 @@ env:
   NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.12.9"
   PYINSTALLER_VERSION: "6.16.0"
+  RUST_VERSION: "1.88.0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONUTF8: "1"
   GROK_KEYSMITH_SOURCE_COMMIT: ${{ github.sha }}
@@ -40,13 +49,28 @@ jobs:
         include:
           - label: Apple Silicon macOS / DMG
             os: macos-15
+            platform: macos
+            architecture: arm64
             target: aarch64-apple-darwin
+            bundle: dmg
+            artifact: grok-keysmith-desktop-macos-arm64
+            sidecar_suffix: ""
           - label: Windows x64 / NSIS
             os: windows-2025
+            platform: windows
+            architecture: x86_64
             target: x86_64-pc-windows-msvc
+            bundle: nsis
+            artifact: grok-keysmith-desktop-windows-x64
+            sidecar_suffix: .exe
           - label: Linux static checks
             os: ubuntu-24.04
+            platform: linux
+            architecture: x86_64
             target: linux-static
+            bundle: none
+            artifact: ""
+            sidecar_suffix: ""
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -63,17 +87,18 @@ jobs:
           cache: npm
           cache-dependency-path: gui/package-lock.json
 
-      - name: Set up Rust
+      - name: Set up pinned Rust toolchain
         if: matrix.target != 'linux-static'
         shell: bash
         env:
           TARGET_TRIPLE: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          rustup toolchain install stable --profile minimal --target "$TARGET_TRIPLE"
-          rustup default stable
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "$TARGET_TRIPLE"
+          rustup default "$RUST_VERSION"
           rustc --version
           cargo --version
+          test "$(rustc --version | awk '{print $2}')" = "$RUST_VERSION"
 
       - name: Frontend and Python gates
         working-directory: gui
@@ -81,6 +106,7 @@ jobs:
         env:
           HOME: ${{ runner.temp }}/isolated-home
         run: |
+          set -euo pipefail
           npm ci
           npm test
           npm run build
@@ -90,14 +116,6 @@ jobs:
           fi
           python -m pip install "pytest==8.4.2"
           (cd .. && python -m pytest -p no:cacheprovider -q tests)
-          mkdir -p src-tauri/binaries
-          cli_version="$(cat ../VERSION)"
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            printf '@echo grok-keysmith %s\n' "$cli_version" > src-tauri/binaries/grok-keysmith-cli-x86_64-pc-windows-msvc.exe
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            printf '%s\n' '#!/bin/sh' "echo grok-keysmith $cli_version" > src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
-            chmod +x src-tauri/binaries/grok-keysmith-cli-aarch64-apple-darwin
-          fi
 
       - name: Linux static only
         if: matrix.target == 'linux-static'
@@ -105,52 +123,187 @@ jobs:
           python -m py_compile grok-keysmith.py grok_keysmith_runner.py grok_keysmith_breaktest.py
           rustc --version
 
-      - name: Native sidecar and Tauri
+      - name: Build pinned PyInstaller sidecar
         if: matrix.target != 'linux-static'
-        working-directory: gui
+        id: sidecar
         shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+          SIDECAR_SUFFIX: ${{ matrix.sidecar_suffix }}
         run: |
-          cargo test --locked --manifest-path src-tauri/Cargo.toml
-          python -m pip install "PyInstaller==${PYINSTALLER_VERSION}"
-          npm run build:sidecar -- --target ${{ matrix.target }}
-          npx tauri build
+          set -euo pipefail
+          python -m pip install -r gui/requirements-build.txt
+          python -c "import PyInstaller; assert PyInstaller.__version__ == '$PYINSTALLER_VERSION'"
+          npm --prefix gui run build:sidecar -- --target "$TARGET_TRIPLE"
+          source="gui/src-tauri/binaries/grok-keysmith-cli-${TARGET_TRIPLE}${SIDECAR_SUFFIX}"
+          test -f "$source"
+          chmod +x "$source"
+          "$source" --version
+          echo "source=$source" >> "$GITHUB_OUTPUT"
 
-      - name: Validate macOS candidate
-        if: matrix.target == 'aarch64-apple-darwin'
+      - name: Run Rust tests
+        if: matrix.target != 'linux-static'
         shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+        run: >-
+          cargo test
+          --manifest-path gui/src-tauri/Cargo.toml
+          --locked
+          --target "$TARGET_TRIPLE"
+
+      - name: Require Apple Silicon runner
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: test "$(uname -m)" = arm64
+
+      - name: Build DMG candidate
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm --prefix gui run tauri -- build \
+              --target "$TARGET_TRIPLE" \
+              --bundles app,dmg; then
+              exit 0
+            fi
+            echo "DMG bundling attempt $attempt failed." >&2
+            hdiutil info || true
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+
+      - name: Build NSIS candidate
+        if: matrix.platform == 'windows'
+        shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+        run: >-
+          npm --prefix gui run tauri -- build
+          --target "$TARGET_TRIPLE"
+          --bundles nsis
+
+      - name: Validate and stage macOS candidate
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          SIDECAR_SOURCE: ${{ steps.sidecar.outputs.source }}
+          TARGET_TRIPLE: ${{ matrix.target }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          apps=(gui/src-tauri/target/release/bundle/macos/*.app)
-          dmgs=(gui/src-tauri/target/release/bundle/dmg/*.dmg)
+          base="gui/src-tauri/target/$TARGET_TRIPLE/release/bundle"
+          apps=("$base/macos"/*.app)
+          dmgs=("$base/dmg"/*.dmg)
           if [ "${#apps[@]}" -ne 1 ] || [ "${#dmgs[@]}" -ne 1 ]; then
             echo "Expected exactly one macOS app and DMG candidate." >&2
             exit 1
           fi
           app="${apps[0]}"
-          gui_bin="$app/Contents/MacOS/grok-keysmith-gui"
+          dmg="${dmgs[0]}"
           sidecar="$app/Contents/MacOS/grok-keysmith-cli"
+          gui_count="$(
+            find "$app/Contents/MacOS" -maxdepth 1 -type f \
+              ! -name 'grok-keysmith-cli' -print | wc -l | tr -d ' '
+          )"
+          if [ "$gui_count" -ne 1 ]; then
+            echo "Expected exactly one macOS GUI executable." >&2
+            exit 1
+          fi
+          gui_bin="$(
+            find "$app/Contents/MacOS" -maxdepth 1 -type f \
+              ! -name 'grok-keysmith-cli' -print
+          )"
           test -x "$gui_bin"
           test -x "$sidecar"
           file "$gui_bin" | grep -F "arm64"
           file "$sidecar" | grep -F "arm64"
-          "$sidecar" --version | grep -F "$(cat VERSION)"
+          expected_version="$(tr -d '\r\n' < VERSION)"
+          "$sidecar" --version | grep -F "$expected_version"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dv --verbose=4 "$app" 2>&1 | grep -F "Signature=adhoc"
+          gui_version="$(node -p "require('./gui/package.json').version")"
+          stage="$RUNNER_TEMP/desktop-candidate"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          asset="$stage/grok-keysmith_${gui_version}_aarch64.dmg"
+          cp "$dmg" "$asset"
+          python3 - "$stage" "$asset" "$gui_version" "$expected_version" "$GITHUB_SHA" "$SIDECAR_SOURCE" "$sidecar" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
 
-      - name: Validate Windows candidate
-        if: matrix.target == 'x86_64-pc-windows-msvc'
+          stage = Path(sys.argv[1])
+          asset = Path(sys.argv[2])
+          gui_version = sys.argv[3]
+          cli_version = sys.argv[4]
+          source_commit = sys.argv[5]
+          source_sidecar = Path(sys.argv[6])
+          packaged_sidecar = Path(sys.argv[7])
+          digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+          (stage / "SHA256SUMS").write_text(f"{digest}  {asset.name}\n", encoding="ascii")
+          (stage / "BUILD_INFO.json").write_text(
+              json.dumps(
+                  {
+                      "gui_version": gui_version,
+                      "cli_version": cli_version,
+                      "source_commit": source_commit,
+                      "target": "aarch64-apple-darwin",
+                      "bundle_format": "dmg",
+                      "signed": False,
+                      "signature": "adhoc",
+                      "source_sidecar_sha256": hashlib.sha256(source_sidecar.read_bytes()).hexdigest(),
+                      "packaged_sidecar_sha256": hashlib.sha256(packaged_sidecar.read_bytes()).hexdigest(),
+                      "artifacts": [{"name": asset.name, "bytes": asset.stat().st_size, "sha256": digest}],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          (cd "$stage" && shasum -a 256 -c SHA256SUMS)
+
+      - name: Validate, smoke, and stage Windows candidate
+        if: matrix.platform == 'windows'
         shell: pwsh
+        env:
+          SIDECAR_SOURCE: ${{ steps.sidecar.outputs.source }}
+          TARGET_TRIPLE: ${{ matrix.target }}
         run: |
           $ErrorActionPreference = "Stop"
-          $bundles = @(
-            Get-ChildItem -LiteralPath "gui/src-tauri/target/release/bundle/nsis" `
-              -Filter "*.exe" -File
-          )
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class KeysmithWindowProbe {
+              [DllImport("user32.dll")]
+              public static extern bool ShowWindow(IntPtr window, int command);
+
+              [DllImport("user32.dll")]
+              public static extern bool IsIconic(IntPtr window);
+
+              [DllImport("user32.dll")]
+              public static extern bool IsWindowVisible(IntPtr window);
+
+              [DllImport("user32.dll")]
+              public static extern IntPtr GetForegroundWindow();
+          }
+          '@
+
+          $base = "gui/src-tauri/target/$env:TARGET_TRIPLE/release"
+          $bundles = @(Get-ChildItem -LiteralPath "$base/bundle/nsis" -Filter "*.exe" -File)
           if ($bundles.Count -ne 1) { throw "Expected exactly one NSIS candidate." }
 
           $installDir = Join-Path $env:RUNNER_TEMP "grok-keysmith-candidate-install"
           $smokeRoot = Join-Path $env:RUNNER_TEMP "grok-keysmith-sidecar-smoke"
+          $stage = Join-Path $env:RUNNER_TEMP "desktop-candidate"
           $installed = $false
           New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
@@ -198,9 +351,15 @@ jobs:
             Assert-X64Executable $apps[0].FullName
             Assert-X64Executable $sidecars[0].FullName
 
+            $expectedVersion = (Get-Content VERSION -Raw).Trim()
             $versionOutput = & $sidecars[0].FullName --version 2>&1
-            if ($LASTEXITCODE -ne 0 -or "$versionOutput" -notmatch [regex]::Escape((Get-Content VERSION -Raw).Trim())) {
+            if ($LASTEXITCODE -ne 0 -or "$versionOutput" -notmatch [regex]::Escape($expectedVersion)) {
               throw "Installed sidecar version smoke failed: $versionOutput"
+            }
+            $sourceSidecarHash = (Get-FileHash -LiteralPath $env:SIDECAR_SOURCE -Algorithm SHA256).Hash
+            $installedSidecarHash = (Get-FileHash -LiteralPath $sidecars[0].FullName -Algorithm SHA256).Hash
+            if ($sourceSidecarHash -ne $installedSidecarHash) {
+              throw "Installed sidecar does not match the bundled source sidecar."
             }
 
             $grokDir = Join-Path $smokeRoot ".grok"
@@ -228,6 +387,308 @@ jobs:
             if (Compare-Object -ReferenceObject $before -DifferenceObject $after) {
               throw "Installed sidecar read-only smoke mutated the temporary Grok directory."
             }
+
+            $rustupHome = (& rustup show home | Out-String).Trim()
+            if (-not $rustupHome -or -not (Test-Path -LiteralPath $rustupHome -PathType Container)) {
+              throw "Pinned Rust toolchain home is unavailable before the isolated Windows smoke."
+            }
+
+            $slowSidecarSource = Join-Path $smokeRoot "slow-sidecar.rs"
+            $slowSidecarBinary = Join-Path $smokeRoot "slow-sidecar.exe"
+            $realSidecarBackup = Join-Path $smokeRoot "grok-keysmith-cli.real.exe"
+            $slowMarker = Join-Path $smokeRoot "slow-sidecar.marker"
+            @'
+          use std::env;
+          use std::fs::OpenOptions;
+          use std::io::Write;
+          use std::process::Command;
+          use std::thread;
+          use std::time::Duration;
+
+          fn mark(value: &str) {
+              let marker = r#"__SLOW_MARKER_PATH__"#;
+              let mut file = OpenOptions::new()
+                  .create(true)
+                  .append(true)
+                  .open(marker)
+                  .expect("open marker");
+              writeln!(file, "{value}").expect("write marker");
+          }
+
+          fn main() {
+              if env::args().any(|arg| arg == "--slow-child") {
+                  thread::sleep(Duration::from_secs(6));
+                  mark("child-complete");
+                  return;
+              }
+
+              let executable = env::current_exe().expect("current executable");
+              let mut child = Command::new(executable)
+                  .arg("--slow-child")
+                  .spawn()
+                  .expect("spawn child");
+              mark("started");
+              assert!(child.wait().expect("wait for child").success());
+              mark("complete");
+              println!("grok-keysmith __CLI_VERSION__");
+          }
+          '@.Replace('__SLOW_MARKER_PATH__', $slowMarker).Replace('__CLI_VERSION__', $expectedVersion) |
+              Set-Content -LiteralPath $slowSidecarSource -Encoding UTF8
+            & rustup run $env:RUST_VERSION rustc $slowSidecarSource -O -o $slowSidecarBinary
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $slowSidecarBinary)) {
+              throw "Failed to build the slow sidecar lifecycle fixture."
+            }
+
+            $profileRoot = Join-Path $smokeRoot "profile"
+            $localAppData = Join-Path $profileRoot "AppData\Local"
+            New-Item -ItemType Directory -Force -Path $localAppData | Out-Null
+            $environmentBackup = @{}
+            foreach ($name in @("USERPROFILE", "HOME", "LOCALAPPDATA", "RUSTUP_HOME")) {
+              $environmentBackup[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+            }
+            try {
+              [Environment]::SetEnvironmentVariable("USERPROFILE", $profileRoot, "Process")
+              [Environment]::SetEnvironmentVariable("HOME", $profileRoot, "Process")
+              [Environment]::SetEnvironmentVariable("LOCALAPPDATA", $localAppData, "Process")
+              [Environment]::SetEnvironmentVariable("RUSTUP_HOME", $rustupHome, "Process")
+
+              $sidecarIdleDeadline = [DateTime]::UtcNow.AddSeconds(15)
+              do {
+                $busySidecars = @(
+                  Get-Process -Name "grok-keysmith*" -ErrorAction SilentlyContinue |
+                    Where-Object {
+                      try { $_.Path.Equals($sidecars[0].FullName, [StringComparison]::OrdinalIgnoreCase) }
+                      catch { $false }
+                    }
+                )
+                if ($busySidecars.Count -eq 0) { break }
+                Start-Sleep -Milliseconds 250
+              } while ([DateTime]::UtcNow -lt $sidecarIdleDeadline)
+              if ($busySidecars.Count -ne 0) {
+                throw "Installed sidecar remained busy before the slow-sidecar fixture swap."
+              }
+
+              Copy-Item -LiteralPath $sidecars[0].FullName -Destination $realSidecarBackup
+              $slowAppProcess = $null
+              try {
+                Copy-Item -LiteralPath $slowSidecarBinary -Destination $sidecars[0].FullName -Force
+                $slowAppProcess = Start-Process -FilePath $apps[0].FullName -PassThru
+                $slowWindowDeadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                  Start-Sleep -Milliseconds 250
+                  $slowAppProcess.Refresh()
+                } while (
+                  -not $slowAppProcess.HasExited -and
+                  $slowAppProcess.MainWindowHandle -eq 0 -and
+                  [DateTime]::UtcNow -lt $slowWindowDeadline
+                )
+                if ($slowAppProcess.HasExited -or $slowAppProcess.MainWindowHandle -eq 0) {
+                  throw "Slow-sidecar GUI did not expose its main window."
+                }
+                $slowMarkerDeadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                  $slowMarkerText = if (Test-Path -LiteralPath $slowMarker) {
+                    Get-Content -LiteralPath $slowMarker -Raw
+                  }
+                  else {
+                    ""
+                  }
+                  if ($slowMarkerText -match "(?m)^started\r?$") { break }
+                  Start-Sleep -Milliseconds 250
+                } while ([DateTime]::UtcNow -lt $slowMarkerDeadline)
+                if ($slowMarkerText -notmatch "(?m)^started\r?$") {
+                  throw "Slow sidecar did not start within 30 seconds."
+                }
+                Start-Sleep -Seconds 1
+                if (-not $slowAppProcess.CloseMainWindow()) {
+                  throw "Slow-sidecar GUI rejected the native close request."
+                }
+                if (-not $slowAppProcess.WaitForExit(20000)) {
+                  throw "Slow-sidecar GUI did not exit after the active process tree completed."
+                }
+                $slowMarkerText = Get-Content -LiteralPath $slowMarker -Raw
+                if (
+                  $slowMarkerText -notmatch "(?m)^child-complete\r?$" -or
+                  $slowMarkerText -notmatch "(?m)^complete\r?$"
+                ) {
+                  throw "GUI closed before the active sidecar process tree completed."
+                }
+              }
+              finally {
+                if ($null -ne $slowAppProcess) {
+                  $slowAppProcess.Refresh()
+                  if (-not $slowAppProcess.HasExited) {
+                    Stop-Process -Id $slowAppProcess.Id -Force -ErrorAction SilentlyContinue
+                    $slowAppProcess.WaitForExit(5000) | Out-Null
+                  }
+                }
+                $slowSidecarProcesses = @(
+                  Get-Process -Name "grok-keysmith*" -ErrorAction SilentlyContinue |
+                    Where-Object {
+                      try { $_.Path.Equals($sidecars[0].FullName, [StringComparison]::OrdinalIgnoreCase) }
+                      catch { $false }
+                    }
+                )
+                foreach ($process in $slowSidecarProcesses) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                  try { $process.WaitForExit(5000) | Out-Null }
+                  catch {}
+                }
+                Copy-Item -LiteralPath $realSidecarBackup -Destination $sidecars[0].FullName -Force
+              }
+
+              $appProcess = Start-Process -FilePath $apps[0].FullName -PassThru
+              $secondProcess = $null
+              try {
+                $windowDeadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                  Start-Sleep -Milliseconds 250
+                  $appProcess.Refresh()
+                } while (
+                  -not $appProcess.HasExited -and
+                  $appProcess.MainWindowHandle -eq 0 -and
+                  [DateTime]::UtcNow -lt $windowDeadline
+                )
+                if ($appProcess.HasExited) {
+                  throw "Installed GUI exited before exposing its main window (exit $($appProcess.ExitCode))."
+                }
+                if ($appProcess.MainWindowHandle -eq 0) {
+                  throw "Installed GUI did not expose a main window within 30 seconds."
+                }
+                Start-Sleep -Seconds 2
+                $appProcess.Refresh()
+                if ($appProcess.HasExited) {
+                  throw "Installed GUI exited during startup before the native close request."
+                }
+                $primaryWindowHandle = [IntPtr]$appProcess.MainWindowHandle
+                [KeysmithWindowProbe]::ShowWindow($primaryWindowHandle, 6) | Out-Null
+                $minimizeDeadline = [DateTime]::UtcNow.AddSeconds(10)
+                do {
+                  Start-Sleep -Milliseconds 100
+                } while (
+                  -not [KeysmithWindowProbe]::IsIconic($primaryWindowHandle) -and
+                  [DateTime]::UtcNow -lt $minimizeDeadline
+                )
+                if (-not [KeysmithWindowProbe]::IsIconic($primaryWindowHandle)) {
+                  throw "Primary GUI could not be minimized before the second-instance handoff."
+                }
+                $secondProcess = Start-Process -FilePath $apps[0].FullName -PassThru
+                if (-not $secondProcess.WaitForExit(15000)) {
+                  throw "Second GUI launch did not hand off to the existing instance."
+                }
+                if ($secondProcess.ExitCode -ne 0) {
+                  throw "Second GUI launch returned exit code $($secondProcess.ExitCode)."
+                }
+                $focusDeadline = [DateTime]::UtcNow.AddSeconds(15)
+                do {
+                  Start-Sleep -Milliseconds 100
+                  $appProcess.Refresh()
+                  $primaryWindowHandle = [IntPtr]$appProcess.MainWindowHandle
+                  $primaryRestored = -not [KeysmithWindowProbe]::IsIconic($primaryWindowHandle)
+                  $primaryVisible = [KeysmithWindowProbe]::IsWindowVisible($primaryWindowHandle)
+                  $primaryFocused = [KeysmithWindowProbe]::GetForegroundWindow() -eq $primaryWindowHandle
+                } while (
+                  -not $appProcess.HasExited -and
+                  (-not $primaryRestored -or -not $primaryVisible -or -not $primaryFocused) -and
+                  [DateTime]::UtcNow -lt $focusDeadline
+                )
+                if ($appProcess.HasExited -or $appProcess.MainWindowHandle -eq 0) {
+                  throw "Second GUI launch did not preserve the primary window."
+                }
+                if (-not $primaryRestored) {
+                  throw "Second GUI launch did not restore the minimized primary window."
+                }
+                if (-not $primaryVisible) {
+                  throw "Second GUI launch did not make the primary window visible."
+                }
+                if (-not $primaryFocused) {
+                  Write-Warning "Second GUI launch restored the primary window but Windows did not make it foreground."
+                }
+                if (-not $appProcess.CloseMainWindow()) {
+                  throw "Installed GUI rejected the native close request."
+                }
+                if (-not $appProcess.WaitForExit(15000)) {
+                  throw "Installed GUI remained resident after its main window was closed."
+                }
+                if ($appProcess.ExitCode -ne 0) {
+                  throw "Installed GUI close lifecycle returned exit code $($appProcess.ExitCode)."
+                }
+              }
+              finally {
+                if ($null -ne $secondProcess) {
+                  $secondProcess.Refresh()
+                  if (-not $secondProcess.HasExited) {
+                    Stop-Process -Id $secondProcess.Id -Force -ErrorAction SilentlyContinue
+                    $secondProcess.WaitForExit(5000) | Out-Null
+                  }
+                }
+                if ($null -ne $appProcess) {
+                  $appProcess.Refresh()
+                  if (-not $appProcess.HasExited) {
+                    Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
+                    $appProcess.WaitForExit(5000) | Out-Null
+                  }
+                }
+              }
+              $payloadProcessDeadline = [DateTime]::UtcNow.AddSeconds(15)
+              do {
+                $remainingPayloadProcesses = @(
+                  Get-Process -Name "grok-keysmith*" -ErrorAction SilentlyContinue |
+                    Where-Object {
+                      try { $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
+                      catch { $false }
+                    }
+                )
+                if ($remainingPayloadProcesses.Count -eq 0) { break }
+                Start-Sleep -Milliseconds 250
+              } while ([DateTime]::UtcNow -lt $payloadProcessDeadline)
+              if ($remainingPayloadProcesses.Count -ne 0) {
+                throw "Installed GUI or sidecar processes remained after close: $($remainingPayloadProcesses.Id -join ', ')"
+              }
+            }
+            finally {
+              foreach ($name in $environmentBackup.Keys) {
+                [Environment]::SetEnvironmentVariable(
+                  $name,
+                  $environmentBackup[$name],
+                  "Process"
+                )
+              }
+            }
+
+            $guiVersion = (Get-Content gui/package.json -Raw | ConvertFrom-Json).version
+            if (Test-Path -LiteralPath $stage) {
+              Remove-Item -LiteralPath $stage -Recurse -Force
+            }
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            $assetName = "grok-keysmith_${guiVersion}_x64-setup.exe"
+            $asset = Join-Path $stage $assetName
+            Copy-Item -LiteralPath $bundles[0].FullName -Destination $asset
+            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sumsPath = Join-Path $stage "SHA256SUMS"
+            [System.IO.File]::WriteAllText(
+              $sumsPath,
+              "$hash  $assetName`n",
+              [System.Text.Encoding]::ASCII
+            )
+            if ([System.IO.File]::ReadAllBytes($sumsPath) -contains 13) {
+              throw "SHA256SUMS must use portable LF line endings"
+            }
+            $buildInfo = [ordered]@{
+              gui_version = $guiVersion
+              cli_version = $expectedVersion
+              source_commit = $env:GITHUB_SHA
+              target = $env:TARGET_TRIPLE
+              bundle_format = "nsis"
+              signed = $false
+              authenticode = "NotSigned"
+              close_while_sidecar_smoke = $true
+              single_instance_smoke = $true
+              source_sidecar_sha256 = $sourceSidecarHash.ToLowerInvariant()
+              packaged_sidecar_sha256 = $installedSidecarHash.ToLowerInvariant()
+              artifacts = @([ordered]@{ name = $assetName; bytes = (Get-Item $asset).Length; sha256 = $hash })
+            }
+            $buildInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage "BUILD_INFO.json") -Encoding UTF8
           }
           finally {
             $cleanupError = $null
@@ -267,21 +728,97 @@ jobs:
           }
 
       - name: Upload macOS candidate
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: matrix.platform == 'macos'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: grok-keysmith-macos-aarch64
-          path: gui/src-tauri/target/release/bundle/dmg/*.dmg
+          name: grok-keysmith-desktop-macos-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/desktop-candidate
           if-no-files-found: error
-          compression-level: 0
           retention-days: 14
 
       - name: Upload Windows candidate
-        if: matrix.target == 'x86_64-pc-windows-msvc'
+        if: matrix.platform == 'windows'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: grok-keysmith-windows-x64
-          path: gui/src-tauri/target/release/bundle/nsis/*.exe
+          name: grok-keysmith-desktop-windows-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/desktop-candidate
           if-no-files-found: error
-          compression-level: 0
           retention-days: 14
+
+  publish-desktop-prerelease:
+    name: Publish unsigned desktop prerelease
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          inputs.publish_desktop_prerelease }}
+    needs:
+      - candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download this run's macOS candidate
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: grok-keysmith-desktop-macos-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/macos-candidate
+
+      - name: Download this run's Windows candidate
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: grok-keysmith-desktop-windows-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/windows-candidate
+
+      - name: Assemble SHA256SUMS and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Public desktop prereleases must run from main." >&2
+            exit 1
+          fi
+          gui_version="$(python3 -c "import json; print(json.load(open('gui/package.json', encoding='utf-8'))['version'])")"
+          cli_version="$(tr -d '\r\n' < VERSION)"
+          tag="desktop-v${gui_version}"
+          notes="docs/releases/${tag}.md"
+          if [ ! -f "$notes" ]; then
+            echo "Missing desktop prerelease notes: ${notes}" >&2
+            exit 1
+          fi
+          if ! grep -F "$cli_version" "$notes" >/dev/null; then
+            echo "Desktop notes must name bundled CLI ${cli_version}." >&2
+            exit 1
+          fi
+          release_dir="${RUNNER_TEMP}/desktop-prerelease"
+          rm -rf "$release_dir"
+          mkdir -p "$release_dir"
+          macos_dmg="$(find "$RUNNER_TEMP/macos-candidate" -maxdepth 1 -type f -name '*.dmg' -print)"
+          windows_exe="$(find "$RUNNER_TEMP/windows-candidate" -maxdepth 1 -type f -name '*.exe' -print)"
+          test -n "$macos_dmg"
+          test -n "$windows_exe"
+          cp "$macos_dmg" "$windows_exe" "$release_dir/"
+          {
+            cat "$RUNNER_TEMP/macos-candidate/SHA256SUMS"
+            cat "$RUNNER_TEMP/windows-candidate/SHA256SUMS"
+          } | sort > "$release_dir/SHA256SUMS"
+          (cd "$release_dir" && sha256sum -c SHA256SUMS)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            --title "grok-keysmith Desktop ${gui_version}" \
+            --notes-file "$notes" \
+            --prerelease \
+            --latest=false \
+            --target "$GITHUB_SHA" \
+            "$release_dir/$(basename "$macos_dmg")" \
+            "$release_dir/$(basename "$windows_exe")" \
+            "$release_dir/SHA256SUMS"
