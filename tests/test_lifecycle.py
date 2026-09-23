@@ -46,6 +46,15 @@ def test_fresh_dir_status_deploy_uninstall(isolated_home):
 
     ready = parse_envelope(run_cli(["--status"], grok_dir, home=home))
     assert ready["result"]["state"] == "active-aligned"
+    competing = ready["result"]["competing_context"]
+    assert competing["slot"] == "rules/99-keysmith.md"
+    assert competing["extra_rules"] == []
+    (grok_dir / "rules" / "98-other.md").write_text("# other\n", encoding="utf-8")
+    (grok_dir / "AGENTS.md").write_text("competing agents\n", encoding="utf-8")
+    with_extra = parse_envelope(run_cli(["--status"], grok_dir, home=home))
+    extra_ctx = with_extra["result"]["competing_context"]
+    assert "98-other.md" in extra_ctx["extra_rules"]
+    assert extra_ctx["agents_md_nonempty"] is True
 
     uninstall_preview = parse_envelope(run_cli(["--uninstall"], grok_dir, home=home))
     assert uninstall_preview["preview"] is True

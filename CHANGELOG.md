@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- `--status` / `--json` 增加 `competing_context`：`rules/` 里 99-keysmith.md 以外的稿、非空 `AGENTS.md`、PATH 上的 `grok --version`。规则槽仍是实测默认，不改部署形状。
+- `docs/series-eval.md` 与 `breaktest/series-bank.txt`：四套 Keysmith 共用 cell ID。
 - README illustrations (zh/en) now use the shared champagne-key still-life set for hero, usage cards, dry-run preview, and the 14/22 → 19/22 result chart.
 
 ## [Desktop 0.1.0-beta.5] - 2026-09-21
