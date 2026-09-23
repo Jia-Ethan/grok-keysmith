@@ -36,6 +36,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import time
 import uuid
@@ -2205,6 +2206,45 @@ def _rule_node(paths):
     return {"kind": kind, "path": str(paths.rule), "fingerprint": fp}
 
 
+def competing_context_for(paths):
+    extra_rules = []
+    if classify_node(paths.rules_dir) == "directory" and not paths.rules_dir.is_symlink():
+        for item in sorted(paths.rules_dir.glob("*.md")):
+            if item.name == RULES_MD_FILENAME or ".keysmith-backup-" in item.name:
+                continue
+            extra_rules.append(item.name)
+    agents_nonempty = False
+    agents = paths.grok_dir / "AGENTS.md"
+    if agents.is_file():
+        try:
+            agents_nonempty = bool(agents.read_text(encoding="utf-8").strip())
+        except OSError:
+            agents_nonempty = True
+    host = {"detected": False, "version": None}
+    grok_bin = shutil.which("grok")
+    if grok_bin:
+        host["detected"] = True
+        try:
+            completed = subprocess.run(
+                [grok_bin, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            lines = (completed.stdout or completed.stderr or "").strip().splitlines()
+            host["version"] = lines[0][:120] if lines else "unknown"
+        except (OSError, subprocess.TimeoutExpired):
+            host["version"] = "unknown"
+    return {
+        "slot": "rules/%s" % RULES_MD_FILENAME,
+        "extra_rules": extra_rules,
+        "agents_md_nonempty": agents_nonempty,
+        "host": host,
+        "on_measured_slot": True,
+    }
+
+
 def compute_status(paths):
     diagnostics = []
     conflicts = []
@@ -2225,6 +2265,7 @@ def compute_status(paths):
             "residue": residue,
             "recovery_required": False,
             "inspect": None,
+            "competing_context": competing_context_for(paths),
         }
     if residue:
         state = STATE_RECOVERY
@@ -2377,6 +2418,7 @@ def compute_status(paths):
         "residue": residue,
         "recovery_required": state == STATE_RECOVERY,
         "inspect": None,
+        "competing_context": competing_context_for(paths),
         "exit_code": exit_code,
         "diagnostics": diagnostics + conflicts + drift,
     }
@@ -2410,6 +2452,14 @@ def human_status(status, paths):
     lines.append("  interrupted journals: %s" % len(status["residue"]))
     for item in status["residue"]:
         lines.append("    - %s" % item)
+    competing = status.get("competing_context") or {}
+    extra_rules = competing.get("extra_rules") or []
+    lines.append("  competing extra_rules: %s" % (", ".join(extra_rules) if extra_rules else "none"))
+    host = competing.get("host") or {}
+    if host.get("detected"):
+        lines.append("  host grok: %s" % (host.get("version") or "unknown"))
+    else:
+        lines.append("  host grok: not on PATH")
     return lines
 
 
