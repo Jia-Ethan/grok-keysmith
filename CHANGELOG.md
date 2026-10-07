@@ -6,6 +6,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-07
+
+- `config.toml` 支持「第二受管区域」：`# === keysmith-switch input rewrite begin ===` 到 `... end ===` 之间的内容（Keysmith Switch 的输入替换在这里写各模型的 `base_url`）归另一个工具所有。本工具从不写入这段内容，计算配置指纹时也排除它，所以这里的变化不算漂移。部署、停用（包括 `--salvage-config`）、`--reconcile` 和中断恢复时，都会保留文件里**当时**的这段内容；它被删掉了就保持删掉，不会从备份里恢复回来。缺少结束标记时，这段内容不算受管区域，仍然按用户内容处理。
+
 ## [0.6.2] - 2026-10-07
 
 - `--uninstall --salvage-config`：受管 `config.toml` 的部署前备份丢失时（例如被清理工具当作旧备份删掉），停用原本会以 `managed config backup is missing or abnormal` 拒绝，`--reconcile` 也会拒绝，用户无路可走（Keysmith Switch issue #95）。加上这个选项后，`config.toml` 保留现状，只移除本工具写入的带标记的 compat 块，其余照常还原。仅当漂移只涉及 config 本身和它的备份时可用；rule、hooks、previous manifest 有任何漂移仍然拒绝。预览输出新增 `config_salvage` 与 `salvage_available`。
