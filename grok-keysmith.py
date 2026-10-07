@@ -46,7 +46,7 @@ from pathlib import Path
 # Version and bundled prompt
 # ---------------------------------------------------------------------------
 
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 TOOL_NAME = "grok-keysmith"
 BUNDLED_PROMPT_SHA256 = "3c669118d67690856f3ac11cd0f2beb687aa6e718dc76ed3f54c0751e01e48c9"
 
@@ -473,6 +473,12 @@ sessions = false
 COMPAT_BLOCK_BEGIN_MARKER = "# === grok-keysmith compat isolation begin ==="
 COMPAT_BLOCK_END_MARKER = "# === grok-keysmith compat isolation end ==="
 COMPAT_TABLE_HEADERS = ("[compat.claude]", "[compat.cursor]", "[compat.codex]")
+# A second managed region in config.toml that belongs to another tool (Keysmith Switch's
+# input rewrite writes per-model base_url tables here). This tool never writes inside it,
+# leaves it out of every config fingerprint, and keeps it through deploy, uninstall,
+# reconcile and recovery, so the other tool's link survives this tool's whole lifecycle.
+FOREIGN_BLOCK_BEGIN_MARKER = "# === keysmith-switch input rewrite begin ==="
+FOREIGN_BLOCK_END_MARKER = "# === keysmith-switch input rewrite end ==="
 
 LANG = "en"
 PINNED_DIRECTORY_OPERATIONS = (
@@ -1021,6 +1027,71 @@ def _toml_line_contexts(content):
 
 def _is_marker_line(line, marker, structural=True):
     return structural and line.strip() == marker
+
+
+def config_split_foreign_block(content):
+    """(content without the foreign region, the region's text or "")."""
+    out = []
+    region = []
+    in_block = False
+    found = False
+    for line, structural in _toml_line_contexts(content):
+        if not in_block and not found and _is_marker_line(
+            line, FOREIGN_BLOCK_BEGIN_MARKER, structural
+        ):
+            in_block = True
+            region.append(line)
+            continue
+        if in_block:
+            region.append(line)
+            if _is_marker_line(line, FOREIGN_BLOCK_END_MARKER, structural):
+                in_block = False
+                found = True
+            continue
+        out.append(line)
+    if in_block:
+        # An unterminated begin marker owns nothing: the file is left as it is.
+        return content, ""
+    body = "".join(out)
+    text = "".join(region)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return body, text
+
+
+def config_with_foreign_block(content, block):
+    """`content` with the foreign region `block` (as returned by the split) appended.
+
+    The region is appended directly after the content's last line, with no separator, so
+    splitting it off again gives back `content` byte for byte."""
+    if not block:
+        return content
+    if content and not content.endswith("\n"):
+        content += "\n"
+    return content + block
+
+
+def config_fingerprint_bytes(data, mtime_ns=0, mode=0o600):
+    """A config fingerprint that does not see the foreign region: the bytes outside it."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return fingerprint_bytes(data, mtime_ns, mode)
+    body, block = config_split_foreign_block(text)
+    if not block:
+        return fingerprint_bytes(data, mtime_ns, mode)
+    return fingerprint_bytes(body.encode("utf-8"), mtime_ns, mode)
+
+
+def config_fingerprint_path(path):
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        return None
+    path_stat = path.stat()
+    mtime_ns = getattr(path_stat, "st_mtime_ns", int(path_stat.st_mtime * 1e9))
+    return config_fingerprint_bytes(
+        path.read_bytes(), mtime_ns, normalized_file_mode(path_stat.st_mode)
+    )
 
 
 def config_has_compat_block(content):
@@ -2081,7 +2152,9 @@ def assess_owned_state(paths, manifest):
         kind = classify_node(path)
         if kind not in {"regular", "missing"}:
             conflicts.append("managed %s node is %s" % (label, kind))
-        elif expected is not None and not _current_matches_after(path, expected):
+        elif expected is not None and not _current_matches_after(
+            path, expected, config=(label == "config")
+        ):
             drift.append("%s content does not match managed after-state" % label)
 
     for label, record in (("rule", layer["rule"]), ("config", layer["config"])):
@@ -2095,7 +2168,10 @@ def assess_owned_state(paths, manifest):
                 continue
             if classify_node(backup_path) != "regular":
                 drift.append("managed %s backup is missing or abnormal" % label)
-            elif before is not None and not fingerprints_match(fingerprint_path(backup_path), before):
+            elif before is not None and not fingerprints_match(
+                config_fingerprint_path(backup_path) if label == "config" else fingerprint_path(backup_path),
+                before,
+            ):
                 drift.append("managed %s backup failed integrity check" % label)
         elif before is not None:
             drift.append("managed %s backup is missing" % label)
@@ -2286,8 +2362,9 @@ def compute_status(paths):
 
     rule = _rule_node(paths)
     config_kind = classify_node(paths.config)
-    config_fp = fingerprint_path(paths.config) if config_kind == "regular" else None
+    config_fp = config_fingerprint_path(paths.config) if config_kind == "regular" else None
     config_text = paths.config.read_text(encoding="utf-8") if config_kind == "regular" else ""
+    config_text, foreign_block = config_split_foreign_block(config_text)
     has_compat = config_has_compat_block(config_text) if config_kind == "regular" else False
     expected_compat = compat_block_wrapped()
     matches_expected = has_compat and expected_compat.strip() in config_text
@@ -2486,6 +2563,7 @@ def build_deploy_plan(paths, args):
     prompt_sha = sha256_bytes(content.encode("utf-8"))
     config_exists = paths.config.is_file() and not paths.config.is_symlink()
     config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
+    config_text, _foreign = config_split_foreign_block(config_text)
     new_config, stripped = config_add_compat_block(config_text)
     rule_kind = classify_node(paths.rule)
     config_kind = classify_node(paths.config)
@@ -2524,7 +2602,7 @@ def build_deploy_plan(paths, args):
             dir_identity(paths.grok_dir) if classify_node(paths.grok_dir) == "directory" else None
         ),
         "rule": fingerprint_path(paths.rule),
-        "config": fingerprint_path(paths.config),
+        "config": config_fingerprint_path(paths.config),
         "manifest": fingerprint_path(paths.manifest),
         "hooks": [
             {"path": path_rel(paths, item, "observed hook"), "fingerprint": fingerprint_path(item)}
@@ -2711,8 +2789,8 @@ def _create_transaction(paths, txid, operation, resources, manifest_archive=None
     return jdir, journal
 
 
-def _copy_verified(source, destination, expected, txid):
-    if expected is None or not _current_matches_after(source, expected):
+def _copy_verified(source, destination, expected, txid, config=False):
+    if expected is None or not _current_matches_after(source, expected, config=config):
         raise KeysmithError("snapshot source changed before copy: %s" % source)
     if destination.exists() or destination.is_symlink():
         raise KeysmithError("snapshot destination already exists: %s" % destination)
@@ -2722,7 +2800,7 @@ def _copy_verified(source, destination, expected, txid):
         shutil.copystat(str(source), str(destination))
     except OSError:
         pass
-    if not _current_matches_after(destination, expected):
+    if not _current_matches_after(destination, expected, config=config):
         raise KeysmithError("snapshot integrity check failed: %s" % destination)
 
 
@@ -2734,12 +2812,18 @@ def _prepare_transaction_snapshots(paths, jdir, journal, txid):
             continue
         source = trusted_path(paths, resource["path"], label="snapshot source")
         destination = trusted_path(paths, snapshot, label="snapshot destination")
-        _copy_verified(source, destination, resource["before"], txid)
+        _copy_verified(
+            source, destination, resource["before"], txid, config=_is_config_resource(resource)
+        )
         if resource["name"] == "rule":
             _checkpoint("after_backup_rule")
         elif resource["name"] == "config":
             _checkpoint("after_backup_config")
     _set_journal_phase(jdir, journal, "prepared", txid)
+
+
+def _is_config_resource(resource):
+    return resource.get("name") == "config"
 
 
 def _assert_resource_before(paths, resource):
@@ -2748,13 +2832,13 @@ def _assert_resource_before(paths, resource):
     kind = classify_node(path)
     if kind not in {"regular", "missing"}:
         raise KeysmithError("transaction resource became abnormal: %s" % path)
-    if not _current_matches_after(path, resource["before"]):
+    if not _current_matches_after(path, resource["before"], config=_is_config_resource(resource)):
         raise KeysmithError("transaction resource changed after validation: %s" % path)
     return path
 
 
 def _verify_resource_after(path, resource):
-    if not _current_matches_after(path, resource["after"]):
+    if not _current_matches_after(path, resource["after"], config=_is_config_resource(resource)):
         raise KeysmithError("transaction mutation did not reach expected state: %s" % path)
 
 
@@ -2778,7 +2862,7 @@ def execute_deploy(paths, plan, args, expected_preview_token=None):
             )
         plan = fresh_plan
         before_rule = fingerprint_path(paths.rule)
-        before_config = fingerprint_path(paths.config)
+        before_config = config_fingerprint_path(paths.config)
         before_manifest = fingerprint_path(paths.manifest)
         rule_mode = before_rule["mode"] if before_rule else 0o644
         config_mode = before_config["mode"] if before_config else 0o600
@@ -2786,7 +2870,7 @@ def execute_deploy(paths, plan, args, expected_preview_token=None):
         rule_after = fingerprint_bytes(
             plan["prompt_content"].encode("utf-8"), mode=rule_mode
         )
-        config_after = fingerprint_bytes(
+        config_after = config_fingerprint_bytes(
             plan["config"]["new_content"].encode("utf-8"), mode=config_mode
         )
 
@@ -2919,9 +3003,9 @@ def execute_deploy(paths, plan, args, expected_preview_token=None):
         _checkpoint("after_config_intent")
         config_resource = next(item for item in resources if item["name"] == "config")
         _assert_resource_before(paths, config_resource)
-        atomic_write_text(
+        atomic_write_bytes(
             paths.config,
-            plan["config"]["new_content"],
+            _with_current_foreign_block(paths, plan["config"]["new_content"].encode("utf-8")),
             mode=config_after["mode"],
             txid=txid,
         )
@@ -3025,9 +3109,10 @@ def _restore_transaction_resource(paths, resource):
         raise KeysmithError("transaction resource is abnormal during recovery: %s" % path)
     before = resource.get("before")
     after = resource.get("after")
-    if _current_matches_after(path, before):
+    config = _is_config_resource(resource)
+    if _current_matches_after(path, before, config=config):
         return "unchanged"
-    if not _current_matches_after(path, after):
+    if not _current_matches_after(path, after, config=config):
         raise KeysmithError(
             "transaction resource drifted; recovery is fail-closed: %s" % path,
             diagnostics=["recovery drift on %s" % resource["path"]],
@@ -3039,12 +3124,14 @@ def _restore_transaction_resource(paths, resource):
     if snapshot_rel is None:
         raise KeysmithError("transaction resource lacks a before-state snapshot: %s" % path)
     snapshot = trusted_path(paths, snapshot_rel, label="transaction snapshot")
-    if classify_node(snapshot) != "regular" or not fingerprints_match(
-        fingerprint_path(snapshot), before
-    ):
+    snapshot_fp = config_fingerprint_path(snapshot) if config else fingerprint_path(snapshot)
+    if classify_node(snapshot) != "regular" or not fingerprints_match(snapshot_fp, before):
         raise KeysmithError("transaction snapshot failed integrity check: %s" % snapshot)
-    atomic_write_bytes(path, snapshot.read_bytes(), mode=before["mode"])
-    if not _current_matches_after(path, before):
+    restored = snapshot.read_bytes()
+    if config:
+        restored = _with_current_foreign_block(paths, restored)
+    atomic_write_bytes(path, restored, mode=before["mode"])
+    if not _current_matches_after(path, before, config=config):
         raise KeysmithError("transaction rollback verification failed: %s" % path)
     return "restored"
 
@@ -3052,7 +3139,9 @@ def _restore_transaction_resource(paths, resource):
 def _verify_transaction_state(paths, resources, key):
     for resource in resources:
         path = trusted_path(paths, resource["path"], label="transaction resource")
-        if not _current_matches_after(path, resource.get(key)):
+        if not _current_matches_after(
+            path, resource.get(key), config=_is_config_resource(resource)
+        ):
             raise KeysmithError(
                 "transaction %s-state verification failed: %s" % (key, path),
                 diagnostics=["transaction state drift on %s" % resource["path"]],
@@ -3262,21 +3351,51 @@ def execute_recover(paths, expected_preview_token=None):
         lock.release()
 
 
-def _current_matches_after(path, after_fp):
+def _current_matches_after(path, after_fp, config=False):
     if after_fp is None:
         return not Path(path).exists()
     if classify_node(path) != "regular":
         return False
-    return fingerprints_match(fingerprint_path(path), after_fp)
+    current = config_fingerprint_path(path) if config else fingerprint_path(path)
+    return fingerprints_match(current, after_fp)
 
 
-def _source_bytes_for_state(paths, relative, expected, label):
+def _is_config_path(paths, path):
+    try:
+        return Path(path).resolve() == paths.config.resolve()
+    except OSError:
+        return False
+
+
+def _with_current_foreign_block(paths, content):
+    """Bytes for config.toml: `content` with whatever foreign region the file holds now.
+
+    Restoring an older config must not take away a region another tool added since."""
+    if content is None:
+        return None
+    try:
+        current = paths.config.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        current = ""
+    except (OSError, UnicodeDecodeError):
+        return content
+    _, block = config_split_foreign_block(current)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return content
+    # The region is whatever the other tool has there now, including nothing: a backup or
+    # snapshot taken earlier never brings back a region that has since been removed.
+    body, _old = config_split_foreign_block(text)
+    return config_with_foreign_block(body, block).encode("utf-8")
+
+
+def _source_bytes_for_state(paths, relative, expected, label, config=False):
     if relative is None:
         raise KeysmithError("missing restore source for %s" % label)
     source = trusted_path(paths, relative, label=label)
-    if classify_node(source) != "regular" or not fingerprints_match(
-        fingerprint_path(source), expected
-    ):
+    current = config_fingerprint_path(source) if config else fingerprint_path(source)
+    if classify_node(source) != "regular" or not fingerprints_match(current, expected):
         raise KeysmithError("restore source failed integrity check: %s" % source)
     return source.read_bytes()
 
@@ -3289,6 +3408,8 @@ def _apply_resource_content(paths, resource, content, txid):
     else:
         if content is None:
             raise KeysmithError("missing target content for %s" % path)
+        if _is_config_resource(resource):
+            content = _with_current_foreign_block(paths, content)
         atomic_write_bytes(path, content, mode=resource["after"]["mode"], txid=txid)
     _verify_resource_after(path, resource)
 
@@ -3316,7 +3437,7 @@ def execute_uninstall(paths, expected_preview_token=None, salvage_config=False):
         rule_path = assessment["rule_path"]
         config_path = assessment["config_path"]
         rule_current = fingerprint_path(rule_path)
-        config_current = fingerprint_path(config_path)
+        config_current = config_fingerprint_path(config_path)
         manifest_current = fingerprint_path(paths.manifest)
         if manifest_current is None:
             raise KeysmithError("deployment manifest changed before uninstall")
@@ -3334,23 +3455,24 @@ def execute_uninstall(paths, expected_preview_token=None, salvage_config=False):
         if operation_plan["salvage"]:
             # The backup is gone: keep the file as the person has it and take out only the
             # marked compat block. Marker lines alone are dropped; nothing else moves.
-            current_text = config_path.read_text(encoding="utf-8")
+            current_text, _ = config_split_foreign_block(config_path.read_text(encoding="utf-8"))
             restored_text = config_remove_compat_block(current_text)
             config_content = restored_text.encode("utf-8")
-            config_target = fingerprint_bytes(
+            config_target = config_fingerprint_bytes(
                 config_content,
                 mode=(config_current or {}).get("mode", 0o600),
             )
         elif config_backup:
             config_source = trusted_path(paths, config_backup, label="managed config backup")
-            config_target = layer["config"].get("before") or fingerprint_path(config_source)
+            config_target = layer["config"].get("before") or config_fingerprint_path(config_source)
             config_content = _source_bytes_for_state(
-                paths, config_backup, config_target, "managed config backup"
+                paths, config_backup, config_target, "managed config backup", config=True
             )
         elif manifest.get("legacy"):
-            restored_text = config_remove_compat_block(config_path.read_text(encoding="utf-8"))
+            current_text, _ = config_split_foreign_block(config_path.read_text(encoding="utf-8"))
+            restored_text = config_remove_compat_block(current_text)
             config_content = restored_text.encode("utf-8")
-            config_target = fingerprint_bytes(
+            config_target = config_fingerprint_bytes(
                 config_content,
                 mode=(config_current or {}).get("mode", 0o600),
             )
@@ -3554,6 +3676,7 @@ def build_reconcile_plan(paths):
     config_kind = classify_node(paths.config)
     config_exists = config_kind == "regular"
     config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
+    config_text, _foreign = config_split_foreign_block(config_text)
     new_config = config_text
     stripped = []
     will_change = False
@@ -3569,7 +3692,7 @@ def build_reconcile_plan(paths):
             if classify_node(paths.grok_dir) == "directory"
             else None
         ),
-        "config": fingerprint_path(paths.config),
+        "config": config_fingerprint_path(paths.config),
         "manifest": fingerprint_path(paths.manifest),
     }
     public = {
@@ -3649,14 +3772,14 @@ def execute_reconcile(paths, expected_preview_token=None):
         manifest = load_manifest(paths)
         if not manifest or manifest.get("invalid") or manifest.get("legacy"):
             raise KeysmithError("reconcile requires a valid schema-2 manifest")
-        before_config = fingerprint_path(paths.config)
+        before_config = config_fingerprint_path(paths.config)
         before_manifest = fingerprint_path(paths.manifest)
         if before_config is None or before_manifest is None:
             raise KeysmithError("reconcile requires an existing config and manifest")
         config_mode = before_config["mode"]
         manifest_mode = before_manifest["mode"]
         new_content = plan["new_content"]
-        config_after = fingerprint_bytes(new_content.encode("utf-8"), mode=config_mode)
+        config_after = config_fingerprint_bytes(new_content.encode("utf-8"), mode=config_mode)
         updated = _manifest_v2_payload(manifest)
         updated["layer"]["config"]["after"] = config_after
         updated["layer"]["config"]["compat_block"] = True
