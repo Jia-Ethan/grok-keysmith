@@ -10,7 +10,7 @@
 
 <p>
   <a href="https://github.com/Jia-Ethan/grok-keysmith/stargazers"><img src="https://img.shields.io/github/stars/Jia-Ethan/grok-keysmith?style=flat-square&color=%232f81f7" alt="GitHub Stars" /></a>
-  <a href="https://github.com/Jia-Ethan/grok-keysmith/releases/latest"><img src="https://img.shields.io/badge/Stable-v0.6.1-2f81f7?style=flat-square" alt="Stable v0.6.1" /></a>
+  <a href="https://github.com/Jia-Ethan/grok-keysmith/releases/latest"><img src="https://img.shields.io/badge/Stable-v0.6.2-2f81f7?style=flat-square" alt="Stable v0.6.2" /></a>
   <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+" />
   <img src="https://img.shields.io/badge/license-MIT-6DB33F?style=flat-square" alt="MIT License" />
 </p>
@@ -88,9 +88,9 @@ On the same model and the same 22 prompts, complete artifacts rose from 14 to 19
 Grok Build must already have been run once. Prefer the stable zip.
 
 ```bash
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.6.1/grok-keysmith-v0.6.1.zip
-unzip grok-keysmith-v0.6.1.zip
-cd grok-keysmith-v0.6.1
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.6.2/grok-keysmith-v0.6.2.zip
+unzip grok-keysmith-v0.6.2.zip
+cd grok-keysmith-v0.6.2
 python3 grok-keysmith.py --dry-run
 python3 grok-keysmith.py --yes
 ```
