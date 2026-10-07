@@ -12,18 +12,20 @@ REGION2 = REGION.replace("4000", "4001")
 USER = '[ui]\npermission_mode = "ask"\n'
 
 
+# Bytes, not text: text mode on Windows would turn every "\n" into "\r\n", which rewrites
+# lines outside the region and is (correctly) drift.
 def _config(grok_dir):
-    return (grok_dir / "config.toml").read_text(encoding="utf-8")
+    return (grok_dir / "config.toml").read_bytes().decode("utf-8")
 
 
 def _write(grok_dir, text):
     grok_dir.mkdir(parents=True, exist_ok=True)
-    (grok_dir / "config.toml").write_text(text, encoding="utf-8")
+    (grok_dir / "config.toml").write_bytes(text.encode("utf-8"))
 
 
 def _deploy(grok_dir, tmp_path):
     prompt = tmp_path / "p.md"
-    prompt.write_text("# Test\nhello\n", encoding="utf-8")
+    prompt.write_bytes(b"# Test\nhello\n")
     done = parse_envelope(run_cli(["--file", prompt, "--name", "test", "--yes"], grok_dir))
     assert done["ok"], done
 
@@ -172,3 +174,14 @@ def test_an_unterminated_region_owns_nothing(isolated_home, tmp_path):
     _write(grok_dir, _config(grok_dir).replace('base_url = "http://h"', 'base_url = "http://g"'))
     preview = parse_envelope(run_cli(["--uninstall"], grok_dir))
     assert not preview["ok"], "without an end marker the text is the person's, so a change is drift"
+
+
+def test_crlf_config_keeps_its_line_endings_around_the_region(isolated_home, tmp_path):
+    home, grok_dir = isolated_home
+    _write(grok_dir, USER.replace("\n", "\r\n"))
+    _deploy(grok_dir, tmp_path)
+    _add_region(grok_dir)
+    assert "drift" not in str(_status(grok_dir).get("blockers") or "")
+    done = parse_envelope(run_cli(["--uninstall", "--yes"], grok_dir))
+    assert done["ok"], done
+    assert _config(grok_dir) == USER.replace("\n", "\r\n") + REGION
