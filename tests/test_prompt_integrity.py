@@ -47,7 +47,7 @@ def test_version_file_matches_python_constant():
     constants = _constants()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert version == constants["VERSION"]
-    assert version == "0.6.1"
+    assert version == "0.6.2"
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "%s"' % version in pyproject
     for relative_path in (

@@ -46,7 +46,7 @@ from pathlib import Path
 # Version and bundled prompt
 # ---------------------------------------------------------------------------
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 TOOL_NAME = "grok-keysmith"
 BUNDLED_PROMPT_SHA256 = "3c669118d67690856f3ac11cd0f2beb687aa6e718dc76ed3f54c0751e01e48c9"
 
@@ -3069,15 +3069,49 @@ def _observe_managed_path(paths, relative, label):
     }
 
 
-def _manifest_operation_plan(paths, operation):
+# Drift a salvage uninstall may repair: only the config file and its own backup. Everything
+# else (rule file, rule backup, hooks, previous manifest) must still be exactly as recorded.
+SALVAGEABLE_CONFIG_DRIFT = (
+    "config content does not match managed after-state",
+    "managed config backup is missing or abnormal",
+    "managed config backup failed integrity check",
+    "managed config backup is missing",
+)
+
+
+def _salvage_blockers(assessment):
+    """Blockers a config salvage cannot get past, or None when salvage does not apply."""
+    if assessment["conflicts"]:
+        return None
+    drift = assessment["drift"]
+    if not drift or any(item not in SALVAGEABLE_CONFIG_DRIFT for item in drift):
+        return None
+    backup_lost = any(item.startswith("managed config backup") for item in drift)
+    if not backup_lost:
+        # With a good backup the normal paths (reconcile, then uninstall) already work.
+        return None
+    return []
+
+
+def _manifest_operation_plan(paths, operation, salvage_config=False):
     manifest = load_manifest(paths)
     blockers = []
     assessment = None
+    salvage = False
     if not manifest or manifest.get("invalid"):
         blockers.extend((manifest or {}).get("diagnostics") or ["no valid deployment manifest"])
     else:
         assessment = assess_owned_state(paths, manifest)
-        blockers.extend(assessment["conflicts"] + assessment["drift"])
+        salvage_blockers = (
+            _salvage_blockers(assessment)
+            if operation == "uninstall" and salvage_config
+            else None
+        )
+        if salvage_blockers is not None:
+            salvage = True
+            blockers.extend(salvage_blockers)
+        else:
+            blockers.extend(assessment["conflicts"] + assessment["drift"])
     relatives = {MANIFEST_FILENAME}
     if manifest and not manifest.get("invalid"):
         layer = manifest["layer"]
@@ -3109,6 +3143,13 @@ def _manifest_operation_plan(paths, operation):
         },
         "blockers": blockers,
     }
+    if operation == "uninstall":
+        # Salvage: the config backup is gone, so the config keeps its current content and
+        # only the marked compat block this tool wrote is removed.
+        public["config_salvage"] = salvage
+        public["salvage_available"] = bool(
+            assessment is not None and _salvage_blockers(assessment) is not None
+        )
     if operation == "restore_hooks":
         public["owned_hooks"] = (
             []
@@ -3126,11 +3167,17 @@ def _manifest_operation_plan(paths, operation):
         "assessment": assessment,
         "observed": observed,
         "public": public,
+        "salvage": salvage,
     }
     state["confirmation_token"] = _confirmation_token(
         operation,
         paths,
-        {"manifest": manifest, "observed": observed, "blockers": blockers},
+        {
+            "manifest": manifest,
+            "observed": observed,
+            "blockers": blockers,
+            "salvage": salvage,
+        },
     )
     public["confirmation_token"] = state["confirmation_token"]
     return state
@@ -3246,7 +3293,7 @@ def _apply_resource_content(paths, resource, content, txid):
     _verify_resource_after(path, resource)
 
 
-def execute_uninstall(paths, expected_preview_token=None):
+def execute_uninstall(paths, expected_preview_token=None, salvage_config=False):
     txid = new_txid()
     lock = WriteLock(paths)
     lock.acquire()
@@ -3254,7 +3301,9 @@ def execute_uninstall(paths, expected_preview_token=None):
         assert_bound_root(paths)
         if journal_dirs(paths):
             raise KeysmithError("interrupted transaction present; run --recover first")
-        operation_plan = _manifest_operation_plan(paths, "uninstall")
+        operation_plan = _manifest_operation_plan(
+            paths, "uninstall", salvage_config=salvage_config
+        )
         _require_expected_preview(
             expected_preview_token, operation_plan["confirmation_token"]
         )
@@ -3282,7 +3331,17 @@ def execute_uninstall(paths, expected_preview_token=None):
         )
 
         config_backup = layer["config"].get("backup")
-        if config_backup:
+        if operation_plan["salvage"]:
+            # The backup is gone: keep the file as the person has it and take out only the
+            # marked compat block. Marker lines alone are dropped; nothing else moves.
+            current_text = config_path.read_text(encoding="utf-8")
+            restored_text = config_remove_compat_block(current_text)
+            config_content = restored_text.encode("utf-8")
+            config_target = fingerprint_bytes(
+                config_content,
+                mode=(config_current or {}).get("mode", 0o600),
+            )
+        elif config_backup:
             config_source = trusted_path(paths, config_backup, label="managed config backup")
             config_target = layer["config"].get("before") or fingerprint_path(config_source)
             config_content = _source_bytes_for_state(
@@ -3666,6 +3725,13 @@ def build_argparser():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument(
+        "--salvage-config",
+        action="store_true",
+        dest="salvage_config",
+        help="with --uninstall: when the managed config backup is lost, keep config.toml "
+        "as it is and remove only the marked compat block",
+    )
     parser.add_argument("--restore-hooks", action="store_true", dest="restore_hooks")
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--reconcile", action="store_true")
@@ -3834,6 +3900,7 @@ def _validate_modes(args):
             args.restore_hooks,
             args.recover,
             args.reconcile,
+            args.salvage_config,
             args.expected_preview_token,
             args.file,
             args.name,
@@ -3855,6 +3922,8 @@ def _validate_modes(args):
             "status, uninstall, restore-hooks, recover, and reconcile are mutually exclusive",
             exit_code=2,
         )
+    if args.salvage_config and not args.uninstall:
+        raise KeysmithError("--salvage-config only works with --uninstall", exit_code=2)
     if args.dry_run and args.yes:
         raise KeysmithError(
             "preview and apply are mutually exclusive (--dry-run cannot be combined with --yes)",
@@ -4106,7 +4175,9 @@ def main(argv=None):
             )
         if args.uninstall:
             preview = not args.yes
-            operation_plan = _manifest_operation_plan(paths, "uninstall")
+            operation_plan = _manifest_operation_plan(
+                paths, "uninstall", salvage_config=args.salvage_config
+            )
             plan = operation_plan["public"]
             if preview:
                 blockers = plan["blockers"]
@@ -4125,7 +4196,9 @@ def main(argv=None):
                     as_json,
                     ["uninstall preview for %s" % plan["manifest"].get("deployment_id")],
                 )
-            result = execute_uninstall(paths, args.expected_preview_token)
+            result = execute_uninstall(
+                paths, args.expected_preview_token, salvage_config=args.salvage_config
+            )
             return emit_envelope(
                 "uninstall",
                 False,

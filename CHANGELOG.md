@@ -6,6 +6,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-07
+
+- `--uninstall --salvage-config`：受管 `config.toml` 的部署前备份丢失时（例如被清理工具当作旧备份删掉），停用原本会以 `managed config backup is missing or abnormal` 拒绝，`--reconcile` 也会拒绝，用户无路可走（Keysmith Switch issue #95）。加上这个选项后，`config.toml` 保留现状，只移除本工具写入的带标记的 compat 块，其余照常还原。仅当漂移只涉及 config 本身和它的备份时可用；rule、hooks、previous manifest 有任何漂移仍然拒绝。预览输出新增 `config_salvage` 与 `salvage_available`。
+
 - `--status` / `--json` 增加 `competing_context`：`rules/` 里 99-keysmith.md 以外的稿、非空 `AGENTS.md`、PATH 上的 `grok --version`。规则槽仍是实测默认，不改部署形状。
 - `docs/series-eval.md` 与 `breaktest/series-bank.txt`：四套 Keysmith 共用 cell ID。
 - README illustrations (zh/en) now use the shared champagne-key still-life set for hero, usage cards, dry-run preview, and the 14/22 → 19/22 result chart.
