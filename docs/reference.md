@@ -12,7 +12,7 @@
 
 ### 稳定 CLI 与开发版
 
-- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.6.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
+- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.7.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest`、`--reconcile` 与 `--uninstall --salvage-config`。
 - 不要从浮动 `main` 安装稳定版。当前公开 Desktop 仍为 [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)（内嵌 CLI `0.5.0`）。源码与 Desktop Candidate 已准备 [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md)，sidecar 为 CLI `0.6.1`；打公开 tag 前它不是可下载的 Pre-release，也不是稳定 Latest。
 
 > README 只保留用户面的快速开始与撤销入口。drift / 中断事务恢复 / 旧版 `AGENTS.md` 部署卸载、`run --session-script` 与 receipt 风格等开发版细节，统一在本页维护。
@@ -75,6 +75,21 @@ python3 grok-keysmith.py --reconcile --yes    # 执行
 ```
 
 `--reconcile` 只重注入带 marker 的官方 compat 块（复用 `config_add_compat_block`），保留所有非 `[compat.*]` 键，并把 manifest 的 `layer.config.after` 更新为新文件指纹。不改 `deployment_id`、rule、hooks，也不改部署前的 `config.before` / `backup`。这与 `--recover` 不同：`--recover` 只回滚中断事务。
+
+### 备份丢失时停用（`--salvage-config`，0.6.2）
+
+部署前的 `config.toml` 备份不在了（例如被清理工具当作旧备份删掉）、`config.toml` 又被改过时，`--uninstall` 和 `--reconcile` 都会以 `managed config backup is missing or abnormal` 拒绝，`--recover` 只处理中断的事务，部署就撤不掉。这时可以：
+
+```bash
+python3 grok-keysmith.py --uninstall --salvage-config          # 预览（输出里有 config_salvage / salvage_available）
+python3 grok-keysmith.py --uninstall --salvage-config --yes    # 执行
+```
+
+`config.toml` 保持现状，只移除本工具写入的带 marker 的 compat 块；rule 文件、hooks、previous manifest 照常还原。只有当漂移完全落在 config 本身和它的备份上时才生效；rule、rule 备份、hooks 或 previous manifest 有任何漂移仍然 fail-closed。备份完好时这个选项不起作用，`--salvage-config` 也不能脱离 `--uninstall` 使用。
+
+### 第二受管区域（0.7.0）
+
+`# === keysmith-switch input rewrite begin ===` 到 `# === keysmith-switch input rewrite end ===` 之间的内容归 Keysmith Switch 的输入替换所有（它在这里给每个模型写 `[model."<id>"] base_url`）。本工具从不写入这段内容；config 指纹（status、plan、confirmation token、事务的 before/after 校验、备份与快照的完整性校验）都排除它，所以它的变化不算漂移。部署、停用（含 `--salvage-config`）、`--reconcile` 和 `--recover` 写回 config 时，保留文件**当时**的这一段；这段在此期间被删掉了就保持删掉，不会从备份里恢复。缺少结束标记（或标记重复）时它不算受管区域，仍按用户内容处理。
 
 ### 中断恢复
 
@@ -213,7 +228,7 @@ grok-keysmith/
 
 ### Stable CLI vs development
 
-- The conservative install pins the latest stable GitHub Release (currently `v0.6.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
+- The conservative install pins the latest stable GitHub Release (currently `v0.7.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, `--reconcile`, and `--uninstall --salvage-config`.
 - Do not install a stable release from floating `main`. The public Desktop remains [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4) with CLI `0.5.0`. Source and Desktop Candidate now prepare [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md) wrapping CLI `0.6.1`; until that tag is published it is not a downloadable Pre-release, and it is not the stable Latest release.
 
 > The README keeps only the user-facing quick start and undo entry points. Drift / interrupted-transaction recovery / uninstalling legacy `AGENTS.md` deployments, plus development commands such as `run --session-script` and receipt styles, are maintained on this page.
@@ -260,6 +275,21 @@ python3 grok-keysmith.py --reconcile --yes    # apply
 ```
 
 `--reconcile` re-injects the marked official compat block (via `config_add_compat_block`), leaves every non-`[compat.*]` key in place, and updates only `layer.config.after`. It does not change `deployment_id`, the rule, hooks, or the pre-deploy `config.before` / `backup`. This is not `--recover`; `--recover` only rolls back an interrupted journal.
+
+### Uninstalling when the config backup is lost (`--salvage-config`, 0.6.2)
+
+When the pre-deploy `config.toml` backup is gone (for example a cleanup tool erased it as an old copy) and `config.toml` has also changed, `--uninstall` and `--reconcile` refuse with `managed config backup is missing or abnormal`, and `--recover` only replays interrupted transactions, so the deployment cannot be removed.
+
+```bash
+python3 grok-keysmith.py --uninstall --salvage-config          # preview (output has config_salvage / salvage_available)
+python3 grok-keysmith.py --uninstall --salvage-config --yes    # apply
+```
+
+`config.toml` stays as it is and only the marked compat block this tool wrote is removed; the rule file, hooks and previous manifest are restored as usual. It applies only when the drift is limited to the config file and its backup; any other drift still fails closed. It does nothing when the backup is intact, and works only with `--uninstall`.
+
+### Second managed region (0.7.0)
+
+Content between `# === keysmith-switch input rewrite begin ===` and `# === keysmith-switch input rewrite end ===` belongs to Keysmith Switch's input rewrite (it writes a `[model."<id>"] base_url` per model there). This tool never writes inside it and leaves it out of every config fingerprint (status, plans, confirmation tokens, transaction before/after checks, backup and snapshot integrity), so changes there are not drift. Deploy, uninstall (including `--salvage-config`), `--reconcile` and `--recover` carry whatever region the file holds at that moment; a region removed in the meantime stays removed. Without a single matching end marker nothing is owned and the text stays the person's.
 
 ### Recovery
 
