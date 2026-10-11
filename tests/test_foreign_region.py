@@ -3,12 +3,34 @@
 # that rewrites the config: deploy, uninstall, salvage, reconcile and recovery.
 from __future__ import annotations
 
+import pytest
+
 from tests.conftest import COMPAT_BEGIN, HARD_EXIT, parse_envelope, run_cli
 
-BEGIN = "# === keysmith-switch input rewrite begin ==="
-END = "# === keysmith-switch input rewrite end ==="
-REGION = f'{BEGIN}\n[model."grok-4.6"]\nbase_url = "http://127.0.0.1:4000/t/tok/grok/xai"\n{END}\n'
-REGION2 = REGION.replace("4000", "4001")
+SWITCH = (
+    "# === keysmith-switch input rewrite begin ===",
+    "# === keysmith-switch input rewrite end ===",
+    '[model."grok-4.6"]\nbase_url = "http://127.0.0.1:4000/t/tok/grok/xai"\n',
+)
+# The person's own region (issue #34): the same contract as the Switch region.
+USER_REGION = (
+    "# === keysmith user region begin ===",
+    "# === keysmith user region end ===",
+    '[model."grok-4.7-api"]\nmodel = "gw-4.7"\nbase_url = "https://gw.example/v1"\n'
+    'api_key = "sk-secret-4000"\n',
+)
+BEGIN = END = REGION = REGION2 = None
+
+
+@pytest.fixture(autouse=True, params=[SWITCH, USER_REGION], ids=["switch", "user"])
+def region_kind(request):
+    # Every test here runs once for each excluded region.
+    global BEGIN, END, REGION, REGION2
+    BEGIN, END, body = request.param
+    REGION = f"{BEGIN}\n{body}{END}\n"
+    REGION2 = REGION.replace("4000", "4001")
+    return request.param
+
 USER = '[ui]\npermission_mode = "ask"\n'
 
 
@@ -30,7 +52,8 @@ def _deploy(grok_dir, tmp_path):
     assert done["ok"], done
 
 
-def _add_region(grok_dir, region=REGION):
+def _add_region(grok_dir, region=None):
+    region = region or REGION
     text = _config(grok_dir)
     if BEGIN in text:
         start = text.index(BEGIN)

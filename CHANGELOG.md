@@ -6,6 +6,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-11
+
+- `config.toml` 新增通用「用户区域」：`# === keysmith user region begin ===` 到 `... end ===` 之间放部署后自己加的长期配置（例如 API key 备用模型），规则和 Keysmith Switch 区域一致：本工具不写入、不计入指纹，部署、停用（含 `--salvage-config`）、`--reconcile`、`--recover` 都保留当时的内容（#34）。区域里不能放 `[compat.*]` 表（部署前出现则拒绝，部署后出现算漂移）；区域内必须以表头开始、之后紧跟表头或文件结尾，否则不算受管区域。`--status` 新增 `config_regions`，只报告是否生效、字节数和原因，不输出内容。
+
 ## [0.7.0] - 2026-10-07
 
 - `config.toml` 支持「第二受管区域」：`# === keysmith-switch input rewrite begin ===` 到 `... end ===` 之间的内容（Keysmith Switch 的输入替换在这里写各模型的 `base_url`）归另一个工具所有。本工具从不写入这段内容，计算配置指纹时也排除它，所以这里的变化不算漂移。部署、停用（包括 `--salvage-config`）、`--reconcile` 和中断恢复时，都会保留文件里**当时**的这段内容；它被删掉了就保持删掉，不会从备份里恢复回来。缺少结束标记时，这段内容不算受管区域，仍然按用户内容处理。

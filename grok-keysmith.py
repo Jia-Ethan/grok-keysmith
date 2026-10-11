@@ -46,7 +46,7 @@ from pathlib import Path
 # Version and bundled prompt
 # ---------------------------------------------------------------------------
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 TOOL_NAME = "grok-keysmith"
 BUNDLED_PROMPT_SHA256 = "3c669118d67690856f3ac11cd0f2beb687aa6e718dc76ed3f54c0751e01e48c9"
 
@@ -479,6 +479,15 @@ COMPAT_TABLE_HEADERS = ("[compat.claude]", "[compat.cursor]", "[compat.codex]")
 # reconcile and recovery, so the other tool's link survives this tool's whole lifecycle.
 FOREIGN_BLOCK_BEGIN_MARKER = "# === keysmith-switch input rewrite begin ==="
 FOREIGN_BLOCK_END_MARKER = "# === keysmith-switch input rewrite end ==="
+# A region for the person's own long-lived settings (for example API-key fallback
+# `[model.*]` tables) that follows the same rules as the Keysmith Switch region.
+USER_REGION_BEGIN_MARKER = "# === keysmith user region begin ==="
+USER_REGION_END_MARKER = "# === keysmith user region end ==="
+# Every config.toml region this tool leaves alone: (name, begin marker, end marker).
+CONFIG_EXCLUDED_REGIONS = (
+    ("keysmith-switch", FOREIGN_BLOCK_BEGIN_MARKER, FOREIGN_BLOCK_END_MARKER),
+    ("user", USER_REGION_BEGIN_MARKER, USER_REGION_END_MARKER),
+)
 
 LANG = "en"
 PINNED_DIRECTORY_OPERATIONS = (
@@ -1029,41 +1038,123 @@ def _is_marker_line(line, marker, structural=True):
     return structural and line.strip() == marker
 
 
-def config_split_foreign_block(content):
-    """(content without the foreign region, the region's text or "")."""
-    out = []
-    region = []
-    in_block = False
-    found = False
-    for line, structural in _toml_line_contexts(content):
-        if not in_block and not found and _is_marker_line(
-            line, FOREIGN_BLOCK_BEGIN_MARKER, structural
-        ):
-            in_block = True
-            region.append(line)
+def _is_compat_header(header):
+    name = re.sub(r"[\s\"']", "", header)
+    return name in {"[compat]", "[[compat]]"} or name.startswith(("[compat.", "[[compat."))
+
+
+def _first_meaningful(lines, indexes):
+    """The first structural line among `indexes` that is neither blank nor a comment."""
+    for index in indexes:
+        line, structural = lines[index]
+        stripped = line.strip()
+        if structural and stripped and not stripped.startswith("#"):
+            return line
+    return None
+
+
+def config_scan_excluded_regions(content):
+    """Where each excluded region sits: (line contexts, {name: (span or None, reason)}).
+
+    A region runs from its begin marker to its end marker, each appearing once. It owns
+    nothing (span None, with a reason) when it is unterminated, has a repeated marker,
+    overlaps another region, holds a compat table, or would move TOML keys between tables
+    once its lines are taken out: the region must open with a table header (or hold no
+    keys) and the text after it must continue with a table header (or end)."""
+    lines = list(_toml_line_contexts(content))
+    found = {}
+    for name, begin_marker, end_marker in CONFIG_EXCLUDED_REGIONS:
+        begins = [i for i, (line, st) in enumerate(lines) if _is_marker_line(line, begin_marker, st)]
+        ends = [i for i, (line, st) in enumerate(lines) if _is_marker_line(line, end_marker, st)]
+        if not begins:
             continue
-        if in_block:
-            region.append(line)
-            if _is_marker_line(line, FOREIGN_BLOCK_END_MARKER, structural):
-                in_block = False
-                found = True
+        if len(begins) > 1 or len(ends) > 1:
+            found[name] = (None, "duplicate markers")
+        elif not ends or ends[0] < begins[0]:
+            found[name] = (None, "unterminated")
+        else:
+            found[name] = ((begins[0], ends[0]), None)
+    spans = [(name, item[0]) for name, item in found.items() if item[0]]
+    for name, span in spans:
+        for other, other_span in spans:
+            if other != name and span[0] <= other_span[1] and other_span[0] <= span[1]:
+                found[name] = (None, "overlaps another region")
+    for name, (span, reason) in list(found.items()):
+        if span is None:
             continue
-        out.append(line)
-    if in_block:
-        # An unterminated begin marker owns nothing: the file is left as it is.
+        inner = range(span[0] + 1, span[1])
+        headers = [
+            _table_header(lines[i][0]) for i in inner if lines[i][1] and _table_header(lines[i][0])
+        ]
+        first = _first_meaningful(lines, inner)
+        if any(_is_compat_header(header) for header in headers):
+            found[name] = (None, "contains compat tables")
+        elif first is not None and _table_header(first) is None:
+            found[name] = (None, "keys before the first table")
+    # Taking one region out can only change what follows another, so repeat until settled.
+    changed = True
+    while changed:
+        changed = False
+        owned = set()
+        for span, _reason in found.values():
+            if span:
+                owned.update(range(span[0], span[1] + 1))
+        for name, (span, _reason) in list(found.items()):
+            if span is None:
+                continue
+            after = [i for i in range(span[1] + 1, len(lines)) if i not in owned]
+            following = _first_meaningful(lines, after)
+            if following is not None and _table_header(following) is None:
+                found[name] = (None, "keys after the region")
+                changed = True
+                break
+    return lines, found
+
+
+def config_split_excluded_regions(content):
+    """(content without the excluded regions, the regions' text in file order or "")."""
+    lines, found = config_scan_excluded_regions(content)
+    owned = set()
+    for span, _reason in found.values():
+        if span:
+            owned.update(range(span[0], span[1] + 1))
+    if not owned:
         return content, ""
-    body = "".join(out)
-    text = "".join(region)
+    body = "".join(line for i, (line, _st) in enumerate(lines) if i not in owned)
+    text = "".join(line for i, (line, _st) in enumerate(lines) if i in owned)
     if text and not text.endswith("\n"):
         text += "\n"
     return body, text
 
 
-def config_with_foreign_block(content, block):
-    """`content` with the foreign region `block` (as returned by the split) appended.
+def config_excluded_region_summary(content):
+    """Per region: whether it is honoured, its size and why not; never its text, which can
+    hold credentials."""
+    lines, found = config_scan_excluded_regions(content)
+    summary = {}
+    for name, _begin, _end in CONFIG_EXCLUDED_REGIONS:
+        span, reason = found.get(name, (None, None))
+        size = 0
+        if span:
+            size = len("".join(line for line, _st in lines[span[0] : span[1] + 1]).encode("utf-8"))
+        summary[name] = {"present": bool(span), "bytes": size, "ignored": reason}
+    return summary
 
-    The region is appended directly after the content's last line, with no separator, so
-    splitting it off again gives back `content` byte for byte."""
+
+def config_region_blockers(content):
+    """Compat tables inside an excluded region would slip past compat isolation: refuse."""
+    return [
+        "config region %s holds compat tables; move them out of the region" % name
+        for name, region in sorted(config_excluded_region_summary(content).items())
+        if region["ignored"] == "contains compat tables"
+    ]
+
+
+def config_with_excluded_regions(content, block):
+    """`content` with the excluded regions `block` (as returned by the split) appended.
+
+    The regions are appended directly after the content's last line, with no separator, so
+    splitting them off again gives back `content` byte for byte."""
     if not block:
         return content
     if content and not content.endswith("\n"):
@@ -1072,12 +1163,12 @@ def config_with_foreign_block(content, block):
 
 
 def config_fingerprint_bytes(data, mtime_ns=0, mode=0o600):
-    """A config fingerprint that does not see the foreign region: the bytes outside it."""
+    """A config fingerprint that does not see the excluded regions: the bytes outside them."""
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return fingerprint_bytes(data, mtime_ns, mode)
-    body, block = config_split_foreign_block(text)
+    body, block = config_split_excluded_regions(text)
     if not block:
         return fingerprint_bytes(data, mtime_ns, mode)
     return fingerprint_bytes(body.encode("utf-8"), mtime_ns, mode)
@@ -2333,6 +2424,7 @@ def compute_status(paths):
             "state": STATE_CONFLICT,
             "nodes": {"grok_dir": {"kind": grok_kind, "path": str(paths.grok_dir)}},
             "compat": _compat_status_fields(),
+            "config_regions": config_excluded_region_summary(""),
             "hooks": {"active": [], "disabled": [], "owned_disabled": [], "external_disabled": []},
             "manifest": None,
             "backups": [],
@@ -2364,7 +2456,8 @@ def compute_status(paths):
     config_kind = classify_node(paths.config)
     config_fp = config_fingerprint_path(paths.config) if config_kind == "regular" else None
     config_text = paths.config.read_text(encoding="utf-8") if config_kind == "regular" else ""
-    config_text, foreign_block = config_split_foreign_block(config_text)
+    excluded_regions = config_excluded_region_summary(config_text)
+    config_text, _excluded = config_split_excluded_regions(config_text)
     has_compat = config_has_compat_block(config_text) if config_kind == "regular" else False
     expected_compat = compat_block_wrapped()
     matches_expected = has_compat and expected_compat.strip() in config_text
@@ -2474,6 +2567,7 @@ def compute_status(paths):
             values_aligned=values_aligned,
             repairable=repairable,
         ),
+        "config_regions": excluded_regions,
         "hooks": {
             "active": active,
             "disabled": disabled,
@@ -2520,6 +2614,14 @@ def human_status(status, paths):
         lines.append("  compat values: aligned%s" % suffix)
     elif status["state"] not in {STATE_NOT_INSTALLED}:
         lines.append("  compat values: not aligned")
+    for name, region in sorted(status.get("config_regions", {}).items()):
+        if region["present"]:
+            lines.append("  config region %s: present (%s bytes)" % (name, region["bytes"]))
+        elif region["ignored"]:
+            lines.append(
+                "  config region %s: not honoured (%s); its text counts as config"
+                % (name, region["ignored"])
+            )
     lines.append("  active hooks: %s" % len(status["hooks"]["active"]))
     lines.append("  disabled hooks: %s" % len(status["hooks"]["disabled"]))
     if status["manifest"]:
@@ -2563,11 +2665,11 @@ def build_deploy_plan(paths, args):
     prompt_sha = sha256_bytes(content.encode("utf-8"))
     config_exists = paths.config.is_file() and not paths.config.is_symlink()
     config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
-    config_text, _foreign = config_split_foreign_block(config_text)
+    blockers = config_region_blockers(config_text)
+    config_text, _excluded = config_split_excluded_regions(config_text)
     new_config, stripped = config_add_compat_block(config_text)
     rule_kind = classify_node(paths.rule)
     config_kind = classify_node(paths.config)
-    blockers = []
     rules_dir_kind = classify_node(paths.rules_dir)
     hooks_dir_kind = classify_node(paths.hooks_dir)
     if rules_dir_kind not in {"directory", "missing"} or paths.rules_dir.is_symlink():
@@ -3005,7 +3107,7 @@ def execute_deploy(paths, plan, args, expected_preview_token=None):
         _assert_resource_before(paths, config_resource)
         atomic_write_bytes(
             paths.config,
-            _with_current_foreign_block(paths, plan["config"]["new_content"].encode("utf-8")),
+            _with_current_excluded_regions(paths, plan["config"]["new_content"].encode("utf-8")),
             mode=config_after["mode"],
             txid=txid,
         )
@@ -3129,7 +3231,7 @@ def _restore_transaction_resource(paths, resource):
         raise KeysmithError("transaction snapshot failed integrity check: %s" % snapshot)
     restored = snapshot.read_bytes()
     if config:
-        restored = _with_current_foreign_block(paths, restored)
+        restored = _with_current_excluded_regions(paths, restored)
     atomic_write_bytes(path, restored, mode=before["mode"])
     if not _current_matches_after(path, before, config=config):
         raise KeysmithError("transaction rollback verification failed: %s" % path)
@@ -3367,10 +3469,10 @@ def _is_config_path(paths, path):
         return False
 
 
-def _with_current_foreign_block(paths, content):
-    """Bytes for config.toml: `content` with whatever foreign region the file holds now.
+def _with_current_excluded_regions(paths, content):
+    """Bytes for config.toml: `content` with whatever excluded regions the file holds now.
 
-    Restoring an older config must not take away a region another tool added since."""
+    Restoring an older config must not take away a region added since."""
     if content is None:
         return None
     try:
@@ -3379,15 +3481,15 @@ def _with_current_foreign_block(paths, content):
         current = ""
     except (OSError, UnicodeDecodeError):
         return content
-    _, block = config_split_foreign_block(current)
+    _, block = config_split_excluded_regions(current)
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return content
     # The region is whatever the other tool has there now, including nothing: a backup or
     # snapshot taken earlier never brings back a region that has since been removed.
-    body, _old = config_split_foreign_block(text)
-    return config_with_foreign_block(body, block).encode("utf-8")
+    body, _old = config_split_excluded_regions(text)
+    return config_with_excluded_regions(body, block).encode("utf-8")
 
 
 def _source_bytes_for_state(paths, relative, expected, label, config=False):
@@ -3409,7 +3511,7 @@ def _apply_resource_content(paths, resource, content, txid):
         if content is None:
             raise KeysmithError("missing target content for %s" % path)
         if _is_config_resource(resource):
-            content = _with_current_foreign_block(paths, content)
+            content = _with_current_excluded_regions(paths, content)
         atomic_write_bytes(path, content, mode=resource["after"]["mode"], txid=txid)
     _verify_resource_after(path, resource)
 
@@ -3455,7 +3557,7 @@ def execute_uninstall(paths, expected_preview_token=None, salvage_config=False):
         if operation_plan["salvage"]:
             # The backup is gone: keep the file as the person has it and take out only the
             # marked compat block. Marker lines alone are dropped; nothing else moves.
-            current_text, _ = config_split_foreign_block(config_path.read_text(encoding="utf-8"))
+            current_text, _ = config_split_excluded_regions(config_path.read_text(encoding="utf-8"))
             restored_text = config_remove_compat_block(current_text)
             config_content = restored_text.encode("utf-8")
             config_target = config_fingerprint_bytes(
@@ -3469,7 +3571,7 @@ def execute_uninstall(paths, expected_preview_token=None, salvage_config=False):
                 paths, config_backup, config_target, "managed config backup", config=True
             )
         elif manifest.get("legacy"):
-            current_text, _ = config_split_foreign_block(config_path.read_text(encoding="utf-8"))
+            current_text, _ = config_split_excluded_regions(config_path.read_text(encoding="utf-8"))
             restored_text = config_remove_compat_block(current_text)
             config_content = restored_text.encode("utf-8")
             config_target = config_fingerprint_bytes(
@@ -3676,7 +3778,8 @@ def build_reconcile_plan(paths):
     config_kind = classify_node(paths.config)
     config_exists = config_kind == "regular"
     config_text = paths.config.read_text(encoding="utf-8") if config_exists else ""
-    config_text, _foreign = config_split_foreign_block(config_text)
+    blockers.extend(item for item in config_region_blockers(config_text) if item not in blockers)
+    config_text, _excluded = config_split_excluded_regions(config_text)
     new_config = config_text
     stripped = []
     will_change = False

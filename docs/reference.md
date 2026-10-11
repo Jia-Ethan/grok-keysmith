@@ -12,7 +12,7 @@
 
 ### 稳定 CLI 与开发版
 
-- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.6.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest` 与 `--reconcile`。
+- 稳妥安装钉 GitHub Latest 稳定 Release（当前为 `v0.7.0`）。该版本把指令写到 `~/.grok/rules/99-keysmith.md`，**不改** `~/.grok/AGENTS.md`，并提供 `--json`、绝对路径 `--grok-dir`、`run`、`breaktest`、`--reconcile` 与 `--uninstall --salvage-config`。
 - 不要从浮动 `main` 安装稳定版。当前公开 Desktop 仍为 [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4)（内嵌 CLI `0.5.0`）。源码与 Desktop Candidate 已准备 [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md)，sidecar 为 CLI `0.6.1`；打公开 tag 前它不是可下载的 Pre-release，也不是稳定 Latest。
 
 > README 只保留用户面的快速开始与撤销入口。drift / 中断事务恢复 / 旧版 `AGENTS.md` 部署卸载、`run --session-script` 与 receipt 风格等开发版细节，统一在本页维护。
@@ -75,6 +75,48 @@ python3 grok-keysmith.py --reconcile --yes    # 执行
 ```
 
 `--reconcile` 只重注入带 marker 的官方 compat 块（复用 `config_add_compat_block`），保留所有非 `[compat.*]` 键，并把 manifest 的 `layer.config.after` 更新为新文件指纹。不改 `deployment_id`、rule、hooks，也不改部署前的 `config.before` / `backup`。这与 `--recover` 不同：`--recover` 只回滚中断事务。
+
+### 备份丢失时停用（`--salvage-config`，0.6.2）
+
+部署前的 `config.toml` 备份不在了（例如被清理工具当作旧备份删掉）、`config.toml` 又被改过时，`--uninstall` 和 `--reconcile` 都会以 `managed config backup is missing or abnormal` 拒绝，`--recover` 只处理中断的事务，部署就撤不掉。这时可以：
+
+```bash
+python3 grok-keysmith.py --uninstall --salvage-config          # 预览（输出里有 config_salvage / salvage_available）
+python3 grok-keysmith.py --uninstall --salvage-config --yes    # 执行
+```
+
+`config.toml` 保持现状，只移除本工具写入的带 marker 的 compat 块；rule 文件、hooks、previous manifest 照常还原。只有当漂移完全落在 config 本身和它的备份上时才生效；rule、rule 备份、hooks 或 previous manifest 有任何漂移仍然 fail-closed。备份完好时这个选项不起作用，`--salvage-config` 也不能脱离 `--uninstall` 使用。
+
+### 第二受管区域（0.7.0）
+
+`# === keysmith-switch input rewrite begin ===` 到 `# === keysmith-switch input rewrite end ===` 之间的内容归 Keysmith Switch 的输入替换所有（它在这里给每个模型写 `[model."<id>"] base_url`）。本工具从不写入这段内容；config 指纹（status、plan、confirmation token、事务的 before/after 校验、备份与快照的完整性校验）都排除它，所以它的变化不算漂移。部署、停用（含 `--salvage-config`）、`--reconcile` 和 `--recover` 写回 config 时，保留文件**当时**的这一段；这段在此期间被删掉了就保持删掉，不会从备份里恢复。缺少结束标记（或标记重复）时它不算受管区域，仍按用户内容处理。
+
+### 用户区域（0.8.0）
+
+部署后自己加到 `config.toml` 的长期配置（例如额度用完时 `/model` 手动切过去的 API key 备用模型），放进这对标记之间，并放在文件末尾：
+
+```toml
+# === keysmith user region begin ===
+[model."grok-4.7-api"]
+model = "<网关别名>"
+name = "Grok 4.7 (API fallback)"
+base_url = "https://<openai-compatible-endpoint>/v1"
+api_backend = "responses"
+api_key = "<你的 key>"
+# === keysmith user region end ===
+```
+
+规则和上面的 Keysmith Switch 区域相同：本工具从不写入，指纹排除它，部署、停用（含 `--salvage-config`）、`--reconcile`、`--recover` 都保留文件**当时**的这一段，删掉了就保持删掉。两块区域互不嵌套，各自保留原有字节和先后顺序；写回时排在文件末尾，Switch 区域每次连接也会重新追加到最后。
+
+边界（任一条不满足，这段就不算受管区域，整段按普通配置计入指纹，改动会报漂移）：
+
+- 每种标记各出现一次，开始在结束之前，且不和另一块区域交叠。
+- 区域内第一行有效内容必须是表头（`[...]`），区域之后紧接的有效内容也必须是表头或文件结尾。否则把区域切出去后，裸键会被并到别的表里，语义就变了。
+- 不能放 `[compat.*]` 表。部署前就放在区域里时 `--dry-run` / 部署 / `--reconcile` 直接拒绝（`holds compat tables`）；部署后才加进去的，`--status` 报漂移。compat 隔离不能靠这块区域绕开。
+
+`--status` 在 `config_regions` 下报告每块区域是否生效（`present`）、字节数（`bytes`）和不生效的原因（`ignored`），从不输出区域内容，因为里面可能有 `api_key`。
+
+Grok CLI 侧的已知问题（不属于本工具）：自定义 `[model.*]` 的 `model` 字段若和内置模型同名（例如直接写 `grok-4.6`），Grok 会套用内置模型的账号凭证，把 session token 发给自定义 `base_url`，结果是 401。请写成网关侧的别名。
 
 ### 中断恢复
 
@@ -213,7 +255,7 @@ grok-keysmith/
 
 ### Stable CLI vs development
 
-- The conservative install pins the latest stable GitHub Release (currently `v0.6.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, and `--reconcile`.
+- The conservative install pins the latest stable GitHub Release (currently `v0.7.0`). It writes `~/.grok/rules/99-keysmith.md`, **does not** edit `~/.grok/AGENTS.md`, and provides `--json`, absolute `--grok-dir`, `run`, `breaktest`, `--reconcile`, and `--uninstall --salvage-config`.
 - Do not install a stable release from floating `main`. The public Desktop remains [`0.1.0-beta.4`](https://github.com/Jia-Ethan/grok-keysmith/releases/tag/desktop-v0.1.0-beta.4) with CLI `0.5.0`. Source and Desktop Candidate now prepare [`0.1.0-beta.5`](releases/desktop-v0.1.0-beta.5.md) wrapping CLI `0.6.1`; until that tag is published it is not a downloadable Pre-release, and it is not the stable Latest release.
 
 > The README keeps only the user-facing quick start and undo entry points. Drift / interrupted-transaction recovery / uninstalling legacy `AGENTS.md` deployments, plus development commands such as `run --session-script` and receipt styles, are maintained on this page.
@@ -260,6 +302,48 @@ python3 grok-keysmith.py --reconcile --yes    # apply
 ```
 
 `--reconcile` re-injects the marked official compat block (via `config_add_compat_block`), leaves every non-`[compat.*]` key in place, and updates only `layer.config.after`. It does not change `deployment_id`, the rule, hooks, or the pre-deploy `config.before` / `backup`. This is not `--recover`; `--recover` only rolls back an interrupted journal.
+
+### Uninstalling when the config backup is lost (`--salvage-config`, 0.6.2)
+
+When the pre-deploy `config.toml` backup is gone (for example a cleanup tool erased it as an old copy) and `config.toml` has also changed, `--uninstall` and `--reconcile` refuse with `managed config backup is missing or abnormal`, and `--recover` only replays interrupted transactions, so the deployment cannot be removed.
+
+```bash
+python3 grok-keysmith.py --uninstall --salvage-config          # preview (output has config_salvage / salvage_available)
+python3 grok-keysmith.py --uninstall --salvage-config --yes    # apply
+```
+
+`config.toml` stays as it is and only the marked compat block this tool wrote is removed; the rule file, hooks and previous manifest are restored as usual. It applies only when the drift is limited to the config file and its backup; any other drift still fails closed. It does nothing when the backup is intact, and works only with `--uninstall`.
+
+### Second managed region (0.7.0)
+
+Content between `# === keysmith-switch input rewrite begin ===` and `# === keysmith-switch input rewrite end ===` belongs to Keysmith Switch's input rewrite (it writes a `[model."<id>"] base_url` per model there). This tool never writes inside it and leaves it out of every config fingerprint (status, plans, confirmation tokens, transaction before/after checks, backup and snapshot integrity), so changes there are not drift. Deploy, uninstall (including `--salvage-config`), `--reconcile` and `--recover` carry whatever region the file holds at that moment; a region removed in the meantime stays removed. Without a single matching end marker nothing is owned and the text stays the person's.
+
+### User region (0.8.0)
+
+Long-lived settings you add to `config.toml` after deploying (for example API-key fallback models to switch to with `/model` when subscription credits run out) go between these markers, at the end of the file:
+
+```toml
+# === keysmith user region begin ===
+[model."grok-4.7-api"]
+model = "<gateway alias>"
+name = "Grok 4.7 (API fallback)"
+base_url = "https://<openai-compatible-endpoint>/v1"
+api_backend = "responses"
+api_key = "<your key>"
+# === keysmith user region end ===
+```
+
+It follows the Keysmith Switch region's rules: never written, left out of every fingerprint, and carried as it is at that moment through deploy, uninstall (including `--salvage-config`), `--reconcile` and `--recover`; removed stays removed. The two regions do not nest and keep their bytes and order; they are written back at the end of the file, and Switch re-appends its own region last on every link.
+
+Limits (if any fails, nothing is owned: the text counts as ordinary config and changes are drift):
+
+- Each marker appears once, begin before end, not overlapping the other region.
+- The region's first meaningful line is a table header, and what follows the region is a table header or the end of the file, so cutting it out cannot move bare keys into another table.
+- No `[compat.*]` tables. If present before deploying, `--dry-run`, deploy and `--reconcile` refuse (`holds compat tables`); added after deploying, `--status` reports drift. The region cannot be used to bypass compat isolation.
+
+`--status` reports each region under `config_regions` (`present`, `bytes`, and `ignored` with the reason) and never prints its content, which may hold an `api_key`.
+
+A Grok CLI pitfall (not this tool's): if a custom `[model.*]` uses a `model` value equal to a built-in model name (such as `grok-4.6`), Grok applies the built-in model's account session and sends that token to the custom `base_url`, which answers 401. Use a gateway alias instead.
 
 ### Recovery
 

@@ -10,7 +10,7 @@
 
 <p>
   <a href="https://github.com/Jia-Ethan/grok-keysmith/stargazers"><img src="https://img.shields.io/github/stars/Jia-Ethan/grok-keysmith?style=flat-square&color=%232f81f7" alt="GitHub Stars" /></a>
-  <a href="https://github.com/Jia-Ethan/grok-keysmith/releases/latest"><img src="https://img.shields.io/badge/Stable-v0.7.0-2f81f7?style=flat-square" alt="Stable v0.7.0" /></a>
+  <a href="https://github.com/Jia-Ethan/grok-keysmith/releases/latest"><img src="https://img.shields.io/badge/Stable-v0.8.0-2f81f7?style=flat-square" alt="Stable v0.8.0" /></a>
   <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+" />
   <img src="https://img.shields.io/badge/license-MIT-6DB33F?style=flat-square" alt="MIT License" />
 </p>
@@ -88,9 +88,9 @@ Keysmith 给本机的 AI 编程工具装指令：先预览，再写入，能验�
 本机需要已经用过 Grok Build。推荐用稳定版压缩包。
 
 ```bash
-curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.7.0/grok-keysmith-v0.7.0.zip
-unzip grok-keysmith-v0.7.0.zip
-cd grok-keysmith-v0.7.0
+curl -LO https://github.com/Jia-Ethan/grok-keysmith/releases/download/v0.8.0/grok-keysmith-v0.8.0.zip
+unzip grok-keysmith-v0.8.0.zip
+cd grok-keysmith-v0.8.0
 python3 grok-keysmith.py --dry-run
 python3 grok-keysmith.py --yes
 ```
@@ -104,7 +104,7 @@ python3 grok-keysmith.py --uninstall
 python3 grok-keysmith.py --uninstall --yes
 ```
 
-先看计划，确认后再恢复。
+先看计划，确认后再恢复。部署后自己加的长期配置（如 API key 备用模型）放进 `config.toml` 的用户区域，停用时会保留，见 [使用说明](docs/reference.md)。
 
 ## 适用环境
 
